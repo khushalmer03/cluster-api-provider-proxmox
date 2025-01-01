@@ -19,12 +19,13 @@ package webhook
 import (
 	"time"
 
-	infrav1 "github.com/ionos-cloud/cluster-api-provider-proxmox/api/v1alpha1"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	infrav1 "github.com/ionos-cloud/cluster-api-provider-proxmox/api/v1alpha1"
 )
 
 var _ = Describe("Controller Test", func() {
@@ -43,10 +44,40 @@ var _ = Describe("Controller Test", func() {
 			g.Expect(k8sClient.Create(testEnv.GetContext(), &cluster)).To(MatchError(ContainSubstring("at least one ip config must be set")))
 		})
 
-		It("should disallow invalid endpoint IP", func() {
+		It("should disallow invalid endpoint FQDN", func() {
 			cluster := invalidProxmoxCluster("test-cluster")
-			cluster.Spec.ControlPlaneEndpoint.Host = "invalid"
-			g.Expect(k8sClient.Create(testEnv.GetContext(), &cluster)).To(MatchError(ContainSubstring("provided endpoint is not in a valid IP and port format")))
+			cluster.Spec.ControlPlaneEndpoint.Host = "_this.is.a.txt.record"
+			g.Expect(k8sClient.Create(testEnv.GetContext(), &cluster)).To(MatchError(ContainSubstring("provided endpoint address is not a valid IP or FQDN")))
+		})
+
+		It("should disallow invalid endpoint short hostname", func() {
+			cluster := invalidProxmoxCluster("test-cluster")
+			cluster.Spec.ControlPlaneEndpoint.Host = "invalid-"
+			g.Expect(k8sClient.Create(testEnv.GetContext(), &cluster)).To(MatchError(ContainSubstring("provided endpoint address is not a valid IP or FQDN")))
+		})
+
+		It("should allow valid endpoint FQDN", func() {
+			cluster := validProxmoxCluster("succeed-test-cluster-with-fqdn")
+			cluster.Spec.ControlPlaneEndpoint.Host = "host.example.com"
+			g.Expect(k8sClient.Create(testEnv.GetContext(), &cluster)).To(Succeed())
+		})
+
+		It("should allow valid upper case endpoint FQDN", func() {
+			cluster := validProxmoxCluster("succeed-test-cluster-with-uppercase-fqdn")
+			cluster.Spec.ControlPlaneEndpoint.Host = "HOST.EXAMPLE.COM"
+			g.Expect(k8sClient.Create(testEnv.GetContext(), &cluster)).To(Succeed())
+		})
+
+		It("should allow valid endpoint IP4", func() {
+			cluster := validProxmoxCluster("succeed-test-cluster-with-ip4")
+			cluster.Spec.ControlPlaneEndpoint.Host = "127.0.0.1"
+			g.Expect(k8sClient.Create(testEnv.GetContext(), &cluster)).To(Succeed())
+		})
+
+		It("should allow valid endpoint IP6", func() {
+			cluster := validProxmoxCluster("succeed-test-cluster-with-ip6")
+			cluster.Spec.ControlPlaneEndpoint.Host = "::1"
+			g.Expect(k8sClient.Create(testEnv.GetContext(), &cluster)).To(Succeed())
 		})
 
 		It("should disallow invalid IPV4 IPs", func() {
@@ -104,7 +135,7 @@ func validProxmoxCluster(name string) infrav1.ProxmoxCluster {
 			Namespace: metav1.NamespaceDefault,
 		},
 		Spec: infrav1.ProxmoxClusterSpec{
-			ControlPlaneEndpoint: clusterv1.APIEndpoint{
+			ControlPlaneEndpoint: &clusterv1.APIEndpoint{
 				Host: "10.10.10.1",
 				Port: 6443,
 			},
@@ -124,7 +155,7 @@ func validProxmoxCluster(name string) infrav1.ProxmoxCluster {
 
 func invalidProxmoxCluster(name string) infrav1.ProxmoxCluster {
 	cl := validProxmoxCluster(name)
-	cl.Spec.ControlPlaneEndpoint = clusterv1.APIEndpoint{
+	cl.Spec.ControlPlaneEndpoint = &clusterv1.APIEndpoint{
 		Host: "10.10.10.2",
 		Port: 6443,
 	}

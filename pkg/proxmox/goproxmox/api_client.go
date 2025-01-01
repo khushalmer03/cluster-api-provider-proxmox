@@ -24,11 +24,15 @@ import (
 
 	"github.com/go-logr/logr"
 	"github.com/luthermonson/go-proxmox"
+	"github.com/pkg/errors"
 
 	capmox "github.com/ionos-cloud/cluster-api-provider-proxmox/pkg/proxmox"
 )
 
 var _ capmox.Client = &APIClient{}
+
+// ErrVMIDFree is returned if the VMID is free.
+var ErrVMIDFree = errors.New("VMID is free")
 
 // APIClient Proxmox API client object.
 type APIClient struct {
@@ -149,6 +153,17 @@ func (c *APIClient) DeleteVM(ctx context.Context, nodeName string, vmID int64) (
 		return nil, fmt.Errorf("cannot find node with name %s: %w", nodeName, err)
 	}
 
+	cluster, err := c.Cluster(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("cannot get cluster")
+	}
+
+	if vmidFree, err := cluster.CheckID(ctx, int(vmID)); vmidFree {
+		return nil, ErrVMIDFree
+	} else if err != nil {
+		return nil, err
+	}
+
 	vm, err := node.VirtualMachine(ctx, int(vmID))
 	if err != nil {
 		return nil, fmt.Errorf("cannot find vm with id %d: %w", vmID, err)
@@ -166,6 +181,16 @@ func (c *APIClient) DeleteVM(ctx context.Context, nodeName string, vmID int64) (
 	}
 
 	return task, nil
+}
+
+// CheckID checks if the vmid is available on the cluster.
+// Returns true if the vmid is available, false if it is taken.
+func (c *APIClient) CheckID(ctx context.Context, vmid int64) (bool, error) {
+	cluster, err := c.Cluster(ctx)
+	if err != nil {
+		return false, fmt.Errorf("cannot get cluster")
+	}
+	return cluster.CheckID(ctx, int(vmid))
 }
 
 // GetTask returns a task associated with upID.

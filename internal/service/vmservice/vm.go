@@ -19,7 +19,11 @@ package vmservice
 
 import (
 	"context"
+<<<<<<< HEAD
 	"strings"
+=======
+	"slices"
+>>>>>>> 5391da8168a9055b4cea081cee0a3198914b9f2e
 
 	"github.com/pkg/errors"
 	corev1 "k8s.io/api/core/v1"
@@ -30,20 +34,25 @@ import (
 	"sigs.k8s.io/cluster-api/util/conditions"
 
 	infrav1alpha1 "github.com/ionos-cloud/cluster-api-provider-proxmox/api/v1alpha1"
+	"github.com/ionos-cloud/cluster-api-provider-proxmox/internal/inject"
 	"github.com/ionos-cloud/cluster-api-provider-proxmox/internal/service/scheduler"
 	"github.com/ionos-cloud/cluster-api-provider-proxmox/internal/service/taskservice"
 	"github.com/ionos-cloud/cluster-api-provider-proxmox/pkg/proxmox"
+	"github.com/ionos-cloud/cluster-api-provider-proxmox/pkg/proxmox/goproxmox"
 	"github.com/ionos-cloud/cluster-api-provider-proxmox/pkg/scope"
 )
 
 const (
-	// See following link for a list of available config options:
+	// See the following link for a list of available config options:
 	// https://pve.proxmox.com/pve-docs/api-viewer/index.html#/nodes/{node}/qemu/{vmid}/config
 
 	optionSockets = "sockets"
 	optionCores   = "cores"
 	optionMemory  = "memory"
 )
+
+// ErrNoVMIDInRangeFree is returned if no free VMID is found in the specified vmIDRange.
+var ErrNoVMIDInRangeFree = errors.New("No free vmid found in vmIDRange")
 
 // ReconcileVM makes sure that the VM is in the desired state by:
 //  1. Creating the VM if it does not exist, then...
@@ -91,8 +100,49 @@ func ReconcileVM(ctx context.Context, scope *scope.MachineScope) (infrav1alpha1.
 		return vm, err
 	}
 
+	if requeue, err := checkCloudInitStatus(ctx, scope); err != nil || requeue {
+		return vm, err
+	}
+
+	// if the root machine is ready, we can assume that the VM is ready as well.
+	// unmount the cloud-init iso if it is still mounted.
+	if scope.Machine.Status.BootstrapReady && scope.Machine.Status.NodeRef != nil {
+		if err := unmountCloudInitISO(ctx, scope); err != nil {
+			return vm, errors.Wrapf(err, "failed to unmount cloud-init iso for vm %s", scope.Name())
+		}
+	}
+
 	vm.State = infrav1alpha1.VirtualMachineStateReady
 	return vm, nil
+}
+
+func checkCloudInitStatus(ctx context.Context, machineScope *scope.MachineScope) (requeue bool, err error) {
+	if !machineScope.VirtualMachine.IsRunning() {
+		// skip if the vm is not running.
+		return true, nil
+	}
+
+	if !machineScope.SkipQemuGuestCheck() {
+		if err := machineScope.InfraCluster.ProxmoxClient.QemuAgentStatus(ctx, machineScope.VirtualMachine); err != nil {
+			return true, errors.Wrap(err, "error waiting for agent")
+		}
+	}
+
+	if !machineScope.SkipCloudInitCheck() {
+		if running, err := machineScope.InfraCluster.ProxmoxClient.CloudInitStatus(ctx, machineScope.VirtualMachine); err != nil || running {
+			if running {
+				return true, nil
+			}
+			if errors.Is(goproxmox.ErrCloudInitFailed, err) {
+				conditions.MarkFalse(machineScope.ProxmoxMachine, infrav1alpha1.VMProvisionedCondition, infrav1alpha1.VMProvisionFailedReason, clusterv1.ConditionSeverityError, err.Error())
+				machineScope.SetFailureMessage(err)
+				machineScope.SetFailureReason(capierrors.MachineStatusError("BootstrapFailed"))
+			}
+			return false, err
+		}
+	}
+
+	return false, nil
 }
 
 // ensureVirtualMachine creates a Proxmox VM if it doesn't exist and updates the given MachineScope.
@@ -203,6 +253,7 @@ func reconcileVirtualMachineConfig(ctx context.Context, machineScope *scope.Mach
 				*machineScope.ProxmoxMachine.Spec.Network.Default.Model,
 				machineScope.ProxmoxMachine.Spec.Network.Default.Bridge,
 				machineScope.ProxmoxMachine.Spec.Network.Default.MTU,
+				machineScope.ProxmoxMachine.Spec.Network.Default.VLAN,
 			),
 		})
 
@@ -211,7 +262,7 @@ func reconcileVirtualMachineConfig(ctx context.Context, machineScope *scope.Mach
 		for _, v := range devices {
 			vmOptions = append(vmOptions, proxmox.VirtualMachineOption{
 				Name:  v.Name,
-				Value: formatNetworkDevice(*v.Model, v.Bridge, v.MTU),
+				Value: formatNetworkDevice(*v.Model, v.Bridge, v.MTU, v.VLAN),
 			})
 		}
 	}
@@ -326,10 +377,19 @@ func setMachineAddresses(machineScope *scope.MachineScope, addresses *[]clusterv
 }
 
 func createVM(ctx context.Context, scope *scope.MachineScope) (proxmox.VMCloneResponse, error) {
+	vmid, err := getVMID(ctx, scope)
+	if err != nil {
+		if errors.Is(err, ErrNoVMIDInRangeFree) {
+			scope.SetFailureMessage(err)
+			scope.SetFailureReason(capierrors.InsufficientResourcesMachineError)
+		}
+		return proxmox.VMCloneResponse{}, err
+	}
+
 	options := proxmox.VMCloneRequest{
-		Node: scope.ProxmoxMachine.GetNode(),
-		// NewID:       0, no need to provide newID
-		Name: scope.ProxmoxMachine.GetName(),
+		Node:  scope.ProxmoxMachine.GetNode(),
+		NewID: int(vmid),
+		Name:  scope.ProxmoxMachine.GetName(),
 	}
 
 	if scope.ProxmoxMachine.Spec.Description != nil {
@@ -400,4 +460,55 @@ func createVM(ctx context.Context, scope *scope.MachineScope) (proxmox.VMCloneRe
 	return res, scope.InfraCluster.PatchObject()
 }
 
+func getVMID(ctx context.Context, scope *scope.MachineScope) (int64, error) {
+	if scope.ProxmoxMachine.Spec.VMIDRange != nil {
+		vmIDRangeStart := scope.ProxmoxMachine.Spec.VMIDRange.Start
+		vmIDRangeEnd := scope.ProxmoxMachine.Spec.VMIDRange.End
+		if vmIDRangeStart != 0 && vmIDRangeEnd != 0 {
+			return getNextFreeVMIDfromRange(ctx, scope, vmIDRangeStart, vmIDRangeEnd)
+		}
+	}
+	// If VMIDRange is not defined, return 0 to let luthermonson/go-proxmox get the next free id.
+	return 0, nil
+}
+
+func getNextFreeVMIDfromRange(ctx context.Context, scope *scope.MachineScope, vmIDRangeStart int64, vmIDRangeEnd int64) (int64, error) {
+	usedVMIDs, err := getUsedVMIDs(ctx, scope)
+	if err != nil {
+		return 0, err
+	}
+	// Get next free vmid from the range
+	for i := vmIDRangeStart; i <= vmIDRangeEnd; i++ {
+		if slices.Contains(usedVMIDs, i) {
+			continue
+		}
+		if vmidFree, err := scope.InfraCluster.ProxmoxClient.CheckID(ctx, i); err == nil && vmidFree {
+			return i, nil
+		} else if err != nil {
+			return 0, err
+		}
+	}
+	// Fail if we can't find a free vmid in the range.
+	return 0, ErrNoVMIDInRangeFree
+}
+
+func getUsedVMIDs(ctx context.Context, scope *scope.MachineScope) ([]int64, error) {
+	// Get all used vmids from existing ProxmoxMachines
+	usedVMIDs := []int64{}
+	proxmoxMachines, err := scope.InfraCluster.ListProxmoxMachinesForCluster(ctx)
+	if err != nil {
+		return usedVMIDs, err
+	}
+	for _, proxmoxMachine := range proxmoxMachines {
+		if proxmoxMachine.GetVirtualMachineID() != -1 {
+			usedVMIDs = append(usedVMIDs, proxmoxMachine.GetVirtualMachineID())
+		}
+	}
+	return usedVMIDs, nil
+}
+
 var selectNextNode = scheduler.ScheduleVM
+
+func unmountCloudInitISO(ctx context.Context, machineScope *scope.MachineScope) error {
+	return machineScope.InfraCluster.ProxmoxClient.UnmountCloudInitISO(ctx, machineScope.VirtualMachine, inject.CloudInitISODevice)
+}

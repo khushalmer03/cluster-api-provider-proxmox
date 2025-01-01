@@ -36,18 +36,23 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
+<<<<<<< HEAD
 	infrav1 "github.com/ionos-cloud/cluster-api-provider-proxmox/api/v1alpha1"
+=======
+	infrav1alpha1 "github.com/ionos-cloud/cluster-api-provider-proxmox/api/v1alpha1"
+	"github.com/ionos-cloud/cluster-api-provider-proxmox/internal/inject"
+>>>>>>> 5391da8168a9055b4cea081cee0a3198914b9f2e
 	"github.com/ionos-cloud/cluster-api-provider-proxmox/pkg/kubernetes/ipam"
 	"github.com/ionos-cloud/cluster-api-provider-proxmox/pkg/proxmox/proxmoxtest"
 	"github.com/ionos-cloud/cluster-api-provider-proxmox/pkg/scope"
 )
 
 type FakeISOInjector struct {
-	error
+	Error error
 }
 
-func (f FakeISOInjector) Inject(_ context.Context) error {
-	return f.error
+func (f FakeISOInjector) Inject(_ context.Context, _ inject.BootstrapDataFormat) error {
+	return f.Error
 }
 
 // setupReconcilerTest initializes a MachineScope with a mock Proxmox client and a fake controller-runtime client.
@@ -74,6 +79,7 @@ func setupReconcilerTest(t *testing.T) (*scope.MachineScope, *proxmoxtest.MockCl
 				infrav1.ClusterFinalizer,
 			},
 		},
+<<<<<<< HEAD
 		Spec: infrav1.ProxmoxClusterSpec{
 			ClusterNetworkConfig: infrav1.ClusterNetworkConfig{
 				IPv4Config: &infrav1.IPConfig{
@@ -82,6 +88,13 @@ func setupReconcilerTest(t *testing.T) (*scope.MachineScope, *proxmoxtest.MockCl
 					Gateway:   "10.0.0.1",
 				},
 				DNSServers: []string{"1.2.3.4"},
+=======
+		Spec: infrav1alpha1.ProxmoxClusterSpec{
+			IPv4Config: &infrav1alpha1.IPConfigSpec{
+				Addresses: []string{"10.0.0.10-10.0.0.20"},
+				Prefix:    24,
+				Gateway:   "10.0.0.1",
+>>>>>>> 5391da8168a9055b4cea081cee0a3198914b9f2e
 			},
 		},
 		Status: infrav1.ProxmoxClusterStatus{
@@ -218,7 +231,8 @@ func createBootstrapSecret(t *testing.T, c client.Client, machineScope *scope.Ma
 			Namespace: machineScope.Namespace(),
 		},
 		Data: map[string][]byte{
-			"value": []byte("data"),
+			"value":  []byte("data"),
+			"format": []byte("cloud-config"),
 		},
 	}
 	require.NoError(t, c.Create(context.Background(), secret))

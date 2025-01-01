@@ -1,5 +1,5 @@
 /*
-Copyright 2023 IONOS Cloud.
+Copyright 2023-2024 IONOS Cloud.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -34,6 +34,9 @@ var (
 	// ErrMissingGateway returns an error if required gateway is empty.
 	ErrMissingGateway = errors.New("gateway is not set")
 
+	// ErrConflictingMetrics returns an error if a metric for a route already exists.
+	ErrConflictingMetrics = errors.New("metric already exists for default gateway")
+
 	// ErrMissingMacAddress returns an error if required mac address is empty.
 	ErrMissingMacAddress = errors.New("mac address is not set")
 
@@ -42,4 +45,10 @@ var (
 
 	// ErrMissingIPAddresses returns an error if required ip addresses is empty.
 	ErrMissingIPAddresses = errors.New("ip addresses is not set")
+
+	// ErrMalformedRoute is returned if a route can not be assembled by netplan.
+	ErrMalformedRoute = errors.New("route is malformed")
+
+	// ErrMalformedFIBRule is returned if a FIB rule can not be assembled by netplan.
+	ErrMalformedFIBRule = errors.New("routing policy is malformed")
 )

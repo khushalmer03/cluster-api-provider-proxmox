@@ -19,6 +19,7 @@ Table of contents
             * [Additional flavors](#additional-flavors)
          * [Cleaning a cluster](#cleaning-a-cluster)
          * [Custom cluster templates](#custom-cluster-templates)
+      * [Using Cluster Classes](#using-cluster-classes)
 
 <!-- Added by: root, at: Fri Dec 10 13:11:36 CET 2021 -->
 
@@ -31,7 +32,8 @@ In order to deploy a K8s cluster with CAPMOX, you require the following:
 * Proxmox VE template in order to be able to create a cluster.
 
   * You can build VM template using [image-builder](https://github.com/kubernetes-sigs/image-builder)
-    * **we recommend using** [the Proxmox VE builder](https://image-builder.sigs.k8s.io/capi/providers/proxmox)
+    * **we recommend using** [the Proxmox VE builder](https://image-builder.sigs.k8s.io/capi/providers/proxmox).
+      See our [troubleshooting docs](Troubleshooting.md#imagebuilder-environment-variables) for more information.
     * OR by [Building Raw Images](https://image-builder.sigs.k8s.io/capi/providers/proxmox)
 
 * clusterctl, which you can download it from Cluster API (CAPI) [releases](https://github.com/kubernetes-sigs/cluster-api/releases) on GitHub.
@@ -40,21 +42,13 @@ In order to deploy a K8s cluster with CAPMOX, you require the following:
 
 * Proxmox VE Bridge e.g. `vmbr0` with an IP Range for VMs.
 
+* [cluster-api provider IPAM `in-cluster`](https://github.com/kubernetes-sigs/cluster-api-ipam-provider-in-cluster): we rely on this IPAM provider to efficiently manage IPv4 and / or IPv6 addresses for machines without DHCP. This also makes dual-stack setups possible
+   
 ## Quick start
 
 ### Prerequisites
 
 In order to install Cluster API Provider for Proxmox VE, you need to have a Kubernetes cluster up and running, and `clusterctl` installed.
-
-
-We need to add the IPAM provider to your clusterctl config file `~/.cluster-api/clusterctl.yaml`:
-
-```yaml
-providers:
-  - name: in-cluster
-    url: https://github.com/kubernetes-sigs/cluster-api-ipam-provider-in-cluster/releases/download/v0.1.0-alpha.3/ipam-components.yaml
-    type: IPAMProvider
-```
 
 ### Configuring and installing Cluster API Provider for Proxmox VE in a management cluster
 
@@ -69,6 +63,9 @@ pveum aclmod / -user capmox@pve -role PVEVMAdmin
 pveum user token add capmox@pve capi -privsep 0
 ```
 on your Proxmox VE node.
+
+
+If you want to create a CAPMOX user with least privileges, see the [advanced setups docs](advanced-setups.md#proxmox-rbac-with-least-privileges).
 
 ---
 
@@ -95,14 +92,15 @@ IP_PREFIX: "25"                                               # Subnet Mask in C
 DNS_SERVERS: "[8.8.8.8,8.8.4.4]"                              # The dns nameservers for the machines network-config.
 BRIDGE: "vmbr1"                                               # The network bridge device for Proxmox VE VMs
 
-## -- xl nodes-- ## 
-BOOT_VOLUME_DEVICE: "scsi0"                                    # The device used for the boot disk.   
-BOOT_VOLUME_SIZE: "100"                                        # The size of the boot disk in GB.
-NUM_SOCKETS: "2"                                               # The number of sockets for the VMs.
-NUM_CORES: "4"                                                 # The number of cores for the VMs.
-MEMORY_MIB: "8048"                                             # The memory size for the VMs.
+## -- xl nodes -- ##
+BOOT_VOLUME_DEVICE: "scsi0"                                   # The device used for the boot disk.
+BOOT_VOLUME_SIZE: "100"                                       # The size of the boot disk in GB.
+NUM_SOCKETS: "2"                                              # The number of sockets for the VMs.
+NUM_CORES: "4"                                                # The number of cores for the VMs.
+MEMORY_MIB: "8048"                                            # The memory size for the VMs.
 
-EXP_CLUSTER_RESOURCE_SET: "true"                               # This enables the ClusterResourceSet feature that we are using to deploy CNI
+EXP_CLUSTER_RESOURCE_SET: "true"                              # This enables the ClusterResourceSet feature that we are using to deploy CNI
+CLUSTER_TOPOLOGY: "true"                                      # This enables experimental ClusterClass templating
 ```
 
 the `CONTROL_PLANE_ENDPOINT_IP` is an IP that must be on the same subnet as the control plane machines
@@ -115,8 +113,11 @@ Once you have access to a management cluster, you can initialize Cluster API wit
 clusterctl init --infrastructure proxmox --ipam in-cluster --core cluster-api:v1.6.1
 ```
 
+**Note:** The Proxmox credentials are optional when installing the provider,
+but they are required when creating a cluster.
+
 ### Create a Workload Cluster
-In order to create a new cluster, you need to generate a cluster manifest.
+To create a new cluster, you need to generate a cluster manifest.
 
 ```bash
 $ clusterctl generate cluster proxmox-quickstart \
@@ -171,6 +172,47 @@ We provide the following templates:
 
 For more information about advanced clusters please check our [advanced setups docs](advanced-setups.md).
 
+#### External Credentials
+
+The `external-creds` flavor is used to create a cluster with external credentials.
+This is useful when you want to use different Proxmox Datacenters.
+
+you will need these environment variables to generate a cluster with external credentials:
+
+```env
+PROXMOX_URL: "https://pve.example:8006"                       # The Proxmox VE host
+PROXMOX_TOKEN: "root@pam!capi"                                # The Proxmox VE TokenID for authentication
+PROXMOX_SECRET: "REDACTED"                                    # The secret associated with the TokenID
+```
+
+However, to use external-credentials in your own Cluster manifests, you need to create a secret
+and reference it in the cluster manifest.
+```yaml
+apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+kind: ProxmoxCluster
+metadata:
+  name: "my-cluster"
+spec:
+  controlPlaneEndpoint:
+    host: ${CONTROL_PLANE_ENDPOINT_IP}
+    port: 6443
+  # ...  
+  credentialsRef:
+    name: "my-cluster-proxmox-credentials"
+---
+apiVersion: v1
+stringData:
+  secret: ${PROXMOX_SECRET}
+  token: ${PROXMOX_TOKEN}
+  url: ${PROXMOX_URL}
+kind: Secret
+metadata:
+  name: my-cluster-proxmox-credentials
+  labels:
+    # Custom IONOS Label
+    platform.ionos.com/secret-type: "proxmox-credentials"
+```
+
 #### Flavor with Cilium CNI
 Before this cluster can be deployed, `cilium` needs to be configured. As a first step we
 need to generate a manifest. Simply use our makefile:
@@ -185,7 +227,7 @@ Now install the ConfigMap into your k8s:
 kubectl create cm cilium  --from-file=data=templates/crs/cni/cilium.yaml
 ```
 
-Now, you can create a cluster using the cilium flavor: 
+Now, you can create a cluster using the cilium flavor:
 
 ```bash
 $ clusterctl generate cluster proxmox-cilium \
@@ -229,6 +271,42 @@ kubectl apply -f cluster-crs.yaml
 kubectl delete cluster proxmox-quickstart
 ```
 
+
+#### Provision a cluster with Flatcar Container Linux Images
+
+To provision a cluster with Flatcar, you need to build a suitable image with [image-builder](https://github.com/kubernetes-sigs/image-builder)
+Once this PR [#1589](https://github.com/kubernetes-sigs/image-builder/pull/1589) is merged, you can follow the official docs on how to build a Flatcar image for Proxmox.
+After you create a VM template using Flatcar, you can provision a cluster with the following options:
+
+First, make sure to enable the
+[experimental-feature-ignition-bootstrap-config](https://cluster-api.sigs.k8s.io/tasks/experimental-features/ignition#experimental-feature-ignition-bootstrap-config-alpha)
+
+you can do so, by [Enabling Experimental Features on Existing Management Clusters](https://cluster-api.sigs.k8s.io/tasks/experimental-features/experimental-features#enabling-experimental-features-on-existing-management-clusters)
+
+Then, you can generate a cluster manifest with the following command:
+```shell
+$ clusterctl generate cluster flatcar-quickstart \
+    --infrastructure proxmox \
+    --kubernetes-version v1.30.5 \
+    --control-plane-machine-count 3 \
+    --worker-machine-count 3 \
+    --flavor flatcar > cluster.yaml
+
+$ kubectl apply -f cluster.yaml
+```
+
+**Notes**: 
+- Make sure to define at least one ssh key in the `VM_SSH_KEYS` environment variable, or the cluster will fail to provision.
+- If you want more customization, you can extend the template to add multiple interfaces or dual-stack.
+- Make sure that the ProxmoxMachines always ignore the cloud-init status by defining `spec.checks.skipCloudInitStatus: true` in the ProxmoxMachine CR.
+
+```yaml
+spec:
+  checks:
+    skipQemuGuestAgent: false
+    skipCloudInitStatus: true
+```
+
 ### Custom cluster templates
 
 If you need anything specific that requires a more complex setup, we recommend to use custom templates:
@@ -241,3 +319,60 @@ $ clusterctl generate custom-cluster proxmox-quickstart \
     --worker-machine-count 3 \
     --from ~/workspace/custom-cluster-template.yaml > custom-cluster.yaml
 ```
+
+## Using Cluster Classes
+[ClusterClass](https://cluster-api.sigs.k8s.io/tasks/experimental-features/cluster-class/)
+is an experimental feature to manage clusters without templating. In this case, you only
+need to write the cluster definition (referring to the cluster class), and all required resources
+are automatically created for you.
+
+This feature requires [CLUSTER_TOPOLOGY](https://cluster-api.sigs.k8s.io/tasks/experimental-features/experimental-features#enabling-experimental-features-on-tilt)
+to be set in your capi controller and in the environment of clusterctl.
+
+We provide the following ClusterClasses:
+
+| Flavor         | Template File                                   | CRS File                      | Example Cluster Manifest     |
+|----------------| ----------------------------------------------- |-------------------------------|-------------------------------
+| cilium         | templates/cluster-class-cilium.yaml             | templates/crs/cni/cilium.yaml | examples/cluster-cilium.yaml |
+| calico         | templates/cluster-class-calico.yaml             | templates/crs/cni/calico.yaml | examples/cluster-calico.yaml |
+| default        | templates/cluster-class.yaml                    | -                             | examples/cluster.yaml        |
+
+### Creating a cluster from a ClusterClass
+1. Choose a ClusterClass
+All ClusterClasses provide the same features except for the CNI they refer to. The base ClusterClass
+also does not provide MachineHealthChecks as those can not be successful until a CNI is deployed.
+
+We recommend that you start with a ClusterClass which defines a CNI. Please
+refer to [CNI Cilium](#flavor-with-cilium-cni) for details on how to get started.
+
+Apply the ClusterClass custom resource definition so you can create cluster manifests:
+
+```bash
+kubectl apply -f templates/cluster-class-cilium.yaml
+```
+
+2. Write the cluster manifest
+An example can be found in [examples/cluster-cilum.yaml](../examples/cluster-cilium.yaml).
+
+Important fields:
+- `.metadata.name: cluster-name` the name of the cluster to be generated.
+- `.spec.topology.class: `proxmox-clusterclass-cilium-v0.1.0` the clusterClass used for generating resources.
+- `.spec.topology.version: 1.25.10` The k8s version used by kubeadm.
+
+All possible fields refer to [CAPMOX environment variables](#capmox-environment-variables).
+
+3. Preview the cluster topology
+
+```bash
+clusterctl alpha topology plan -f examples/cluster-cilium.yaml -o out/
+```
+
+The to-be-created resources will be located in `out/created`.
+
+4. Apply the Cluster Manifest
+
+```bash
+kubectl apply -f mycluster.yaml
+```
+
+If you run into issues, refer to [Cluster Health and deployment status](#cluster-health-and-deployment-status).

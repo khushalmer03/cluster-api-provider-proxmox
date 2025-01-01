@@ -33,7 +33,7 @@ The following dependencies are required to setup a development environment:
 
 - git
 - make
-- Go >=v1.20
+- Go v1.22
 - Kubebuilder (only required for making new controllers)
 - Docker (required for Kind)
 - Tilt
@@ -86,11 +86,21 @@ for more information.
   "kustomize_substitutions": {},
   "extra_args": {
     "proxmox": ["--v=4"]
+  },
+  "debug": {
+    "proxmox": {
+      "port": 30000
+    }
   }
 }
 ```
   This file instructs Tilt to use the cluster-api-provider-proxmox and ipam-provider-in-cluster repositories. `allowed_contexts` is used to add
   allowed clusters other than kind (which is always implicitly enabled).
+
+The optional `debug` section will start CAPMOX with a [delve remote debugger](https://github.com/go-delve/delve/tree/master) listening on port `30000`.
+You will need to forward the port to localhost, e.g. by running `kubectl port-forward deployments/capmox-controller-manager 30000:30000 -n capmox-system`.
+
+- Change directory to cluster-api-ipam-provider-in-cluster `cd ../cluster-api-ipam-provider-in-cluster`.
 
 - If you don't have a cluster, create a new kind cluster:
 ```

@@ -27,6 +27,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"
 	ipamicv1 "sigs.k8s.io/cluster-api-ipam-provider-in-cluster/api/v1alpha2"
+	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -98,6 +99,24 @@ var _ = Describe("ProxmoxCluster Test", func() {
 		Expect(client.IgnoreNotFound(err)).To(Succeed())
 	})
 
+	Context("ClusterPort", func() {
+		It("Should not allow ports higher than 65535", func() {
+			dc := defaultCluster()
+			dc.Spec.ControlPlaneEndpoint = &clusterv1.APIEndpoint{
+				Port: 65536,
+			}
+			Expect(k8sClient.Create(context.Background(), dc)).Should(MatchError(ContainSubstring("port must be within 1-65535")))
+		})
+
+		It("Should not allow port 0", func() {
+			dc := defaultCluster()
+			dc.Spec.ControlPlaneEndpoint = &clusterv1.APIEndpoint{
+				Port: 0,
+			}
+			Expect(k8sClient.Create(context.Background(), dc)).Should(MatchError(ContainSubstring("port must be within 1-65535")))
+		})
+	})
+
 	Context("IPv4Config", func() {
 		It("Should not allow prefix higher than 128", func() {
 			dc := defaultCluster()
@@ -130,6 +149,15 @@ var _ = Describe("ProxmoxCluster Test", func() {
 
 	It("Should allow creating valid clusters", func() {
 		Expect(k8sClient.Create(context.Background(), defaultCluster())).To(Succeed())
+	})
+
+	Context("CloneSpecs", func() {
+		It("Should not allow Cluster without ControlPlane nodes", func() {
+			dc := defaultCluster()
+			dc.Spec.CloneSpec.ProxmoxMachineSpec = map[string]ProxmoxMachineSpec{}
+
+			Expect(k8sClient.Create(context.Background(), dc)).Should(MatchError(ContainSubstring("control plane")))
+		})
 	})
 
 	Context("IPV6Config", func() {

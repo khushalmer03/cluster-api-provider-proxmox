@@ -63,3 +63,89 @@ or others, please check the image tag of the `capi-controller-manager` Deploymen
 kubectl get deployment/capi-controller-manager -o yaml | yq '.spec.template.spec.containers[].image'
 ```
 If your capi-controller is too new, you can pass a `--core cluster-api:v1.6.1` during `clusterctl init`, to force an older version. By default it installs the latest version from the [kubernetes-sigs/cluster-api](https://github.com/kubernetes-sigs/cluster-api) project.
+
+## Calico fails in IPVS mode with loadBalancers to expose services
+Calico unfortunately does not test connectivity when it choses a node ip to use for IPVS communication.
+This can be altered manually. More on this topic in [Calicos documentation](https://docs.tigera.io/calico/latest/networking/ipam/ip-autodetection#autodetection-methods).
+
+## Machine deletion deadlock
+Sometimes machines do not delete because some resource needs to be reconciled before
+deletion can happen, but these resources can not reconcile (for example nodes may not drain).
+To fix deletion deadlocks in such cases:
+ - Remove `ipaddresses` and `ipaddressclaims` for the relevant machines
+ - Remove the `proxmoxmachine` finalizer by editing `proxmoxmachines <machine>`
+ - Delete the `proxmoxmachine`
+ - Remove the `machine` finalizer by editing `machines <machine>`
+ - Delete the `machine`
+
+After these steps, VMs may linger in proxmox. Carefully remove those.
+
+## Imagebuilder Environment Variables
+[Proxmox VE Image Builder](https://image-builder.sigs.k8s.io/capi/providers/proxmox) and CAPMOX differ in their use of environment variables.
+Trying to use CAPMOX's variables will lead to [image building failure](https://github.com/ionos-cloud/cluster-api-provider-proxmox/issues/52).
+The image builder uses `PROXMOX_USERNAME` as the token name and `PROXMOX_TOKEN` as the token's secret, whereas CAPMOX uses `PROXMOX_TOKEN` as
+the token name and `PROXMOX_SECRET` as the token's secret UUID.
+The CAPMOX way of implementing authentication is closer to the [Proxmox API Token Documentation](https://pve.proxmox.com/wiki/Proxmox_VE_API#api_tokens),
+therefore this pitfall will likely keep on existing.
+
+## IPv6 only cluster, kube-vip fails with "unable to detect default interface"
+Older versions of `kube-vip` do not consider the IPv6 routing table and therefore IPv6 interface detection fails.
+Update `kube-vip` to version `0.7.2`.
+
+Example log:
+```
+time="2024-03-14T11:48:58Z" level=info msg="Starting kube-vip.io [v0.5.10]"
+time="2024-03-14T11:48:58Z" level=info msg="namespace [kube-system], Mode: [ARP], Features(s): Control Plane:[true], Services:[false]"
+time="2024-03-14T11:48:58Z" level=info msg="No interface is specified for VIP in config, auto-detecting default Interface"
+....
+time="2024-03-14T11:52:30Z" level=fatal msg="unable to detect default interface -> [Unable to find default route]"
+```
+
+## Nodes fail to deploy/have wrong node-ip with mixed interface models
+Kubelet chooses the first interface to acquire a node-ip for kubeadm. The first
+interface is defined by the in-kernel order, which is defined by the order the
+pci bus is scanned and drivers are loaded.
+
+As an example:
+```
+kubectl get nodes -o wide
+NAME                               STATUS     ROLES                AGE   VERSION   INTERNAL-IP   EXTERNAL-IP   OS-IMAGE             KERNEL-VERSION      CONTAINER-RUNTIME
+test-cluster-control-plane-gcgc6   Ready      control-plane        11h   v1.26.7   10.0.1.69    <none>        Ubuntu 22.04.3 LTS   5.15.0-89-generic   containerd://1.7.6
+test-cluster-load-balancer-c8rd2   Ready      load-balancer,node   11h   v1.26.7   10.0.2.155   <none>        Ubuntu 22.04.3 LTS   5.15.0-89-generic   containerd://1.7.6
+test-cluster-load-balancer-wqbcg   Ready      load-balancer,node   11h   v1.26.7   10.0.2.152   <none>        Ubuntu 22.04.3 LTS   5.15.0-89-generic   containerd://1.7.6
+test-cluster-worker-hbm8s          Ready      node                 11h   v1.26.7   10.0.1.71    <none>        Ubuntu 22.04.3 LTS   5.15.0-89-generic   containerd://1.7.6
+test-cluster-worker-n2vbc          NotReady   node                 17m   v1.26.7   10.0.1.73    <none>        Ubuntu 22.04.3 LTS   5.15.0-89-generic   containerd://1.7.6
+```
+
+The load-balancers have an `e1000` interface as their default network, whereas `ens19` and `ens20` are `virtio`
+```
+root@test-cluster-load-balancer-zrjx8:~# ip -o l sh
+1: lo: <LOOPBACK,UP,LOWER_UP> mtu 65536 qdisc noqueue state UNKNOWN mode DEFAULT group default qlen 1000\    link/loopback 00:00:00:00:00:00 brd 00:00:00:00:00:00
+2: ens19: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 9000 qdisc prio state UP mode DEFAULT group default qlen 1000\    link/ether 0a:97:89:e5:7f:1d brd ff:ff:ff:ff:ff:ff\    altname enp0s19
+3: ens20: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 9000 qdisc prio master vrf-ext state UP mode DEFAULT group default qlen 1000\    link/ether 9a:58:08:40:a2:70 brd ff:ff:ff:ff:ff:ff\    altname enp0s20
+4: ens18: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 9000 qdisc prio state UP mode DEFAULT group default qlen 1000\    link/ether 16:7a:ee:74:23:0d brd ff:ff:ff:ff:ff:ff\    altname enp0s18
+```
+
+This is the order the interfaces are created in:
+```
+root@test-cluster-load-balancer-zrjx8:~# dmesg -t | grep eth
+virtio_net virtio2 ens19: renamed from eth0
+virtio_net virtio3 ens20: renamed from eth1
+e1000 0000:00:12.0 eth0: (PCI:33MHz:32-bit) 16:7a:ee:74:23:0d
+e1000 0000:00:12.0 eth0: Intel(R) PRO/1000 Network Connection
+e1000 0000:00:12.0 ens18: renamed from eth0
+```
+
+If you absolutely must mix interface types, make sure that the default network interface is the one that comes up first.
+
+## Machine deletion deadlock
+Sometimes machines do not delete because some resource needs to be reconciled before
+deletion can happen, but these resources can not reconcile (for example nodes may not drain).
+To fix deletion deadlocks in such cases:
+ - Remove `ipaddresses` and `ipaddressclaims` for the relevant machines
+ - Remove the `proxmoxmachine` finalizer by editing `proxmoxmachines <machine>`
+ - Delete the `proxmoxmachine`
+ - Remove the `machine` finalizer by editing `machines <machine>`
+ - Delete the `machine`
+
+After these steps, VMs may linger in proxmox. Carefully remove those.

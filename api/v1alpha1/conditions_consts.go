@@ -1,5 +1,5 @@
 /*
-Copyright 2023 IONOS Cloud.
+Copyright 2023-2024 IONOS Cloud.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -78,9 +78,16 @@ const (
 
 	// UnknownReason (Severity=Warning) documents the ProxmoxVM Unknown.
 	UnknownReason = "Unknown"
+
+	// MissingControlPlaneEndpointReason (Severity=Warning) documents the missing Control Plane endpoint when Cluster is backed by an externally managed Control Plane.
+	MissingControlPlaneEndpointReason = "MissingControlPlaneEndpoint"
 )
 
 const (
 	// ProxmoxClusterReady documents the status of ProxmoxCluster and its underlying resources.
 	ProxmoxClusterReady clusterv1.ConditionType = "ClusterReady"
+
+	// ProxmoxUnreachableReason (Severity=Error) documents a controller detecting
+	// issues with Proxmox reachability.
+	ProxmoxUnreachableReason = "ProxmoxUnreachable"
 )

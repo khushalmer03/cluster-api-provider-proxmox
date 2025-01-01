@@ -25,11 +25,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4.1.1
 
+      - name: Generate lowercase repository name
+        run: |
+          echo "REPO=${GITHUB_REPOSITORY,,}" >> "${GITHUB_ENV}"
+
       - name: Docker meta
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ghcr.io/ionos-cloud/cluster-api-provider-proxmox
+          images: ghcr.io/${{ env.REPO }}
 
       - name: Login to GitHub Container Registry
         if: github.event_name != 'pull_request'
@@ -40,18 +44,20 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build and push Docker image
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v6
         with:
           context: .
+          load: ${{ github.event_name == 'pull_request' }}
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
 
       - name: Scan image
         if: github.event_name == 'pull_request'
-        uses: anchore/scan-action@v3
+        uses: aquasecurity/trivy-action@0.29.0
         id: scan
         with:
-          image: ${{ steps.meta.outputs.tags }}
-          add-cpes-if-none: true
-          output-format: table
+          scan-ref: ${{ steps.meta.outputs.tags }}
+          exit-code: '1'
+          ignore-unfixed: true
+          severity: 'HIGH,CRITICAL'

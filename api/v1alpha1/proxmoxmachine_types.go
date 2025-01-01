@@ -23,14 +23,14 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
-	"sigs.k8s.io/cluster-api/errors"
+	clusterapierrors "sigs.k8s.io/cluster-api/errors"
 )
 
 const (
 	// ProxmoxMachineKind is the ProxmoxMachine kind.
 	ProxmoxMachineKind = "ProxmoxMachine"
 
-	// MachineFinalizer allows cleaning up resources associated with
+	// MachineFinalizer allows cleaning up resources associated with a
 	// ProxmoxMachine before removing it from the API Server.
 	MachineFinalizer = "proxmoxmachine.infrastructure.cluster.x-k8s.io"
 
@@ -50,7 +50,17 @@ const (
 	IPV6Format = "v6"
 )
 
-// ProxmoxMachineSpec defines the desired state of ProxmoxMachine.
+// ProxmoxMachineChecks defines possibibles checks to skip.
+type ProxmoxMachineChecks struct {
+	// Skip checking CloudInit which can be very useful for specific Operating Systems like TalOS
+	// +optional
+	SkipCloudInitStatus *bool `json:"skipCloudInitStatus,omitempty"`
+	// Skip checking QEMU Agent readiness which can be very useful for specific Operating Systems like TalOS
+	// +optional
+	SkipQemuGuestAgent *bool `json:"skipQemuGuestAgent,omitempty"`
+}
+
+// ProxmoxMachineSpec defines the desired state of a ProxmoxMachine.
 type ProxmoxMachineSpec struct {
 	VirtualMachineCloneSpec `json:",inline"`
 
@@ -59,7 +69,7 @@ type ProxmoxMachineSpec struct {
 	// +optional
 	ProviderID *string `json:"providerID,omitempty"`
 
-	// VirtualMachineID is the Proxmox identifier for the ProxmoxMachine vm.
+	// VirtualMachineID is the Proxmox identifier for the ProxmoxMachine VM.
 	// +optional
 	VirtualMachineID *int64 `json:"virtualMachineID,omitempty"`
 
@@ -90,6 +100,19 @@ type ProxmoxMachineSpec struct {
 	// Network is the network configuration for this machine's VM.
 	// +optional
 	Network *NetworkSpec `json:"network,omitempty"`
+
+	// VMIDRange is the range of VMIDs to use for VMs.
+	// +optional
+	// +kubebuilder:validation:XValidation:rule="self.end >= self.start",message="end should be greater than or equal to start"
+	VMIDRange *VMIDRange `json:"vmIDRange,omitempty"`
+
+	// Checks defines possibles checks to skip.
+	// +optional
+	Checks *ProxmoxMachineChecks `json:"checks,omitempty"`
+
+	// MetadataSettings defines the metadata settings for this machine's VM.
+	// +optional
+	MetadataSettings *MetadataSettings `json:"metadataSettings,omitempty"`
 }
 
 // Storage is the physical storage on the node.
@@ -203,6 +226,9 @@ type NetworkSpec struct {
 	// +listType=map
 	// +listMapKey=name
 	AdditionalDevices []AdditionalNetworkDevice `json:"additionalDevices,omitempty"`
+
+	// VirtualNetworkDevices defines virtual network devices (e.g. bridges, vlans ...).
+	VirtualNetworkDevices `json:",inline"`
 }
 
 // NetworkDevice defines the required details of a virtual machine network device.
@@ -268,11 +294,142 @@ type AdditionalNetworkDevice struct {
 	// +optional
 	// +kubebuilder:validation:MinItems=1
 	DNSServers []string `json:"dnsServers,omitempty"`
+
+	// Routing is the common spec of routes and routing policies to all interfaces and VRFs.
+	Routing `json:",inline"`
+
+	// LinkMTU is the network device Maximum Transmission Unit.
+	// +optional
+	LinkMTU MTU `json:"linkMtu,omitempty"`
 }
 
-// ProxmoxMachineStatus defines the observed state of ProxmoxMachine.
+// Routing is shared fields across devices and VRFs.
+type Routing struct {
+	// Routes are the routes associated with this interface.
+	// +optional
+	// +kubebuilder:validation:MinItems=1
+	Routes []RouteSpec `json:"routes,omitempty"`
+
+	// RoutingPolicy is an interface-specific policy inserted into FIB (forwarding information base).
+	// +optional
+	// +kubebuilder:validation:MinItems=1
+	RoutingPolicy []RoutingPolicySpec `json:"routingPolicy,omitempty"`
+}
+
+// RouteSpec describes an IPv4/IPv6 Route.
+type RouteSpec struct {
+	// To is the subnet to be routed.
+	// +optional
+	To string `json:"to,omitempty"`
+	// Via is the gateway to the subnet.
+	// +optional
+	Via string `json:"via,omitempty"`
+	// Metric is the priority of the route in the routing table.
+	// +optional
+	Metric uint32 `json:"metric,omitempty"`
+	// Table is the routing table used for this route.
+	// +optional
+	Table uint32 `json:"table,omitempty"`
+}
+
+// RoutingPolicySpec is a Linux FIB rule.
+type RoutingPolicySpec struct {
+	// To is the subnet of the target.
+	// +optional
+	To string `json:"to,omitempty"`
+
+	// From is the subnet of the source.
+	// +optional
+	From string `json:"from,omitempty"`
+
+	// Table is the routing table ID.
+	// when used in the networks, the value should be the VRF Table.
+	// +optional
+	Table *uint32 `json:"table,omitempty"`
+
+	// Priority is the position in the ip rule FIB table.
+	// +kubebuilder:validation:Maximum=4294967295
+	// +kubebuilder:validation:XValidation:message="Cowardly refusing to insert FIB rule matching kernel rules",rule="(self > 0 && self < 32765) || (self > 32766)"
+	// +optional
+	Priority uint32 `json:"priority,omitempty"`
+}
+
+// VRFDevice defines Virtual Routing Flow devices.
+type VRFDevice struct {
+	// Interfaces is the list of proxmox network devices managed by this virtual device.
+	Interfaces []string `json:"interfaces,omitempty"`
+
+	// Name is the virtual network device name.
+	// Must be unique within the virtual machine.
+	// +kubebuilder:validation:MinLength=3
+	Name string `json:"name"`
+
+	// Table is the ID of the routing table used for the l3mdev vrf device.
+	// +kubebuilder:validation:Maximum=4294967295
+	// +kubebuilder:validation:XValidation:message="Cowardly refusing to insert l3mdev rules into kernel tables",rule="(self > 0 && self < 254) || (self > 255)"
+	Table uint32 `json:"table"`
+
+	// Routing is the common spec of routes and routing policies to all interfaces and VRFs.
+	Routing `json:",inline"`
+}
+
+// VirtualNetworkDevices defines Linux software networking devices.
+type VirtualNetworkDevices struct {
+	// Definition of a VRF Device.
+	// +optional
+	// +listType=map
+	// +listMapKey=name
+	VRFs []VRFDevice `json:"vrfs,omitempty"`
+}
+
+// NetworkDevice defines the required details of a virtual machine network device.
+type NetworkDevice struct {
+	// Bridge is the network bridge to attach to the machine.
+	// +kubebuilder:validation:MinLength=1
+	Bridge string `json:"bridge"`
+
+	// Model is the network device model.
+	// +optional
+	// +kubebuilder:validation:Enum=e1000;virtio;rtl8139;vmxnet3
+	// +kubebuilder:default=virtio
+	Model *string `json:"model,omitempty"`
+
+	// MTU is the network device Maximum Transmission Unit.
+	// When set to 1, virtio devices inherit the MTU value from the underlying bridge.
+	// +optional
+	MTU MTU `json:"mtu,omitempty"`
+
+	// VLAN is the network L2 VLAN.
+	// +optional
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=4094
+	VLAN *uint16 `json:"vlan,omitempty"`
+}
+
+// MTU is the network device Maximum Transmission Unit. MTUs below 1280 break IPv6.
+// +optional
+// +kubebuilder:validation:XValidation:rule="self == 1 || ( self >= 576 && self <= 65520)",message="invalid MTU value"
+type MTU *uint16
+
+// AdditionalNetworkDevice the definition of a Proxmox network device.
+// +kubebuilder:validation:XValidation:rule="self.ipv4PoolRef != null || self.ipv6PoolRef != null",message="at least one pool reference must be set, either ipv4PoolRef or ipv6PoolRef"
+type AdditionalNetworkDevice struct {
+	NetworkDevice `json:",inline"`
+
+	// Name is the network device name.
+	// Must be unique within the virtual machine and different from the primary device 'net0'.
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:XValidation:rule="self != 'net0'",message="additional network devices doesn't allow net0"
+	Name string `json:"name"`
+
+	// InterfaceConfig contains all configurables a network interface can have.
+	// +optional
+	InterfaceConfig `json:",inline"`
+}
+
+// ProxmoxMachineStatus defines the observed state of a ProxmoxMachine.
 type ProxmoxMachineStatus struct {
-	// Ready indicates the Docker infrastructure has been provisioned and is ready
+	// Ready indicates the Docker infrastructure has been provisioned and is ready.
 	// +optional
 	Ready bool `json:"ready"`
 
@@ -292,13 +449,13 @@ type ProxmoxMachineStatus struct {
 	// +optional
 	IPAddresses map[string]IPAddress `json:"ipAddresses,omitempty"`
 
-	// Network returns the network status for each of the machine's configured
+	// Network returns the network status for each of the machine's configured.
 	// network interfaces.
 	// +optional
 	Network []NetworkStatus `json:"network,omitempty"`
 
 	// ProxmoxNode is the name of the proxmox node, which was chosen for this
-	// machine to be deployed on
+	// machine to be deployed on.
 	// +optional
 	ProxmoxNode *string `json:"proxmoxNode,omitempty"`
 
@@ -308,7 +465,7 @@ type ProxmoxMachineStatus struct {
 	// +optional
 	TaskRef *string `json:"taskRef,omitempty"`
 
-	// RetryAfter tracks the time we can retry queueing a task
+	// RetryAfter tracks the time we can retry queueing a task.
 	// +optional
 	RetryAfter metav1.Time `json:"retryAfter,omitempty"`
 
@@ -329,7 +486,7 @@ type ProxmoxMachineStatus struct {
 	// can be added as events to the ProxmoxMachine object and/or logged in the
 	// controller's output.
 	// +optional
-	FailureReason *errors.MachineStatusError `json:"failureReason,omitempty"`
+	FailureReason *clusterapierrors.MachineStatusError `json:"failureReason,omitempty"`
 
 	// FailureMessage will be set in the event that there is a terminal problem
 	// reconciling the Machine and will contain a more verbose string suitable
@@ -357,13 +514,41 @@ type ProxmoxMachineStatus struct {
 
 // IPAddress defines the IP addresses of a network interface.
 type IPAddress struct {
-	// IPV4 is the IP v4 address.
+	// IPV4 is the IPv4 address.
 	// +optional
 	IPV4 string `json:"ipv4,omitempty"`
 
-	// IPV6 is the IP v6 address.
+	// IPV6 is the IPv6 address.
 	// +optional
 	IPV6 string `json:"ipv6,omitempty"`
+}
+
+// VMIDRange defines the range of VMIDs to use for VMs.
+type VMIDRange struct {
+	// VMIDRangeStart is the start of the VMID range to use for VMs.
+	// +kubebuilder:validation:Minimum=100
+	// +kubebuilder:validation:ExclusiveMinimum=false
+	// +kubebuilder:validation:Maximum=999999999
+	// +kubebuilder:validation:ExclusiveMaximum=false
+	// +kubebuilder:validation:Required
+	Start int64 `json:"start"`
+
+	// VMIDRangeEnd is the end of the VMID range to use for VMs.
+	// Only used if VMIDRangeStart is set.
+	// +kubebuilder:validation:Minimum=100
+	// +kubebuilder:validation:ExclusiveMinimum=false
+	// +kubebuilder:validation:Maximum=999999999
+	// +kubebuilder:validation:ExclusiveMaximum=false
+	// +kubebuilder:validation:Required
+	End int64 `json:"end"`
+}
+
+// MetadataSettings defines the metadata settings for the machine.
+type MetadataSettings struct {
+	// ProviderIDInjection enables the injection of the `providerID` into the cloudinit metadata.
+	// this will basically set the `provider-id` field in the metadata to `proxmox://<instanceID>`.
+	// +optional
+	ProviderIDInjection bool `json:"providerIDInjection,omitempty"`
 }
 
 // +kubebuilder:object:root=true

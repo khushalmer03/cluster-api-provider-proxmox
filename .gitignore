@@ -24,6 +24,7 @@ out/
 
 # editor and IDE paraphernalia
 .idea
+.vscode
 *.swp
 *.swo
 *~
@@ -35,6 +36,7 @@ cluster.yaml
 cluster-**.yaml
 **.userdata
 **kubeadm-config.yaml
+envfile
 
 # direnv files
 .envrc
@@ -43,3 +45,5 @@ cluster-**.yaml
 _artifacts
 **e2e.test
 test/e2e/config/*-envsubst.yaml
+
+.tool-versions

@@ -1,5 +1,5 @@
 /*
-Copyright 2023 IONOS Cloud.
+Copyright 2023-2024 IONOS Cloud.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -84,10 +84,14 @@ func (p *ProxmoxMachine) ValidateDelete(_ context.Context, _ runtime.Object) (wa
 }
 
 func validateNetworks(machine *infrav1.ProxmoxMachine) error {
+	if machine.Spec.Network == nil {
+		return nil
+	}
+
 	gk, name := machine.GroupVersionKind().GroupKind(), machine.GetName()
 
 	if machine.Spec.Network.Default != nil {
-		err := validateNetworkDevice(machine.Spec.Network.Default)
+		err := validateNetworkDeviceMTU(machine.Spec.Network.Default)
 		if err != nil {
 			return apierrors.NewInvalid(
 				gk,
@@ -100,14 +104,47 @@ func validateNetworks(machine *infrav1.ProxmoxMachine) error {
 	}
 
 	for i := range machine.Spec.Network.AdditionalDevices {
-		err := validateNetworkDevice(&machine.Spec.Network.AdditionalDevices[i].NetworkDevice)
+		err := validateNetworkDeviceMTU(&machine.Spec.Network.AdditionalDevices[i].NetworkDevice)
 		if err != nil {
 			return apierrors.NewInvalid(
 				gk,
 				name,
 				field.ErrorList{
 					field.Invalid(
-						field.NewPath("spec", "network", "additionalDevices", fmt.Sprint(i), "mtu"), machine.Spec.Network.Default, err.Error()),
+						field.NewPath("spec", "network", "additionalDevices", fmt.Sprint(i), "mtu"), machine.Spec.Network.AdditionalDevices[i], err.Error()),
+				})
+		}
+		err = validateInterfaceConfigMTU(&machine.Spec.Network.AdditionalDevices[i].InterfaceConfig)
+		if err != nil {
+			return apierrors.NewInvalid(
+				gk,
+				name,
+				field.ErrorList{
+					field.Invalid(
+						field.NewPath("spec", "network", "additionalDevices", fmt.Sprint(i), "linkMtu"), machine.Spec.Network.AdditionalDevices[i], err.Error()),
+				})
+		}
+		err = validateRoutingPolicy(&machine.Spec.Network.AdditionalDevices[i].InterfaceConfig.RoutingPolicy)
+		if err != nil {
+			return apierrors.NewInvalid(
+				gk,
+				name,
+				field.ErrorList{
+					field.Invalid(
+						field.NewPath("spec", "network", "additionalDevices", fmt.Sprint(i), "routingPolicy"), machine.Spec.Network.AdditionalDevices[i], err.Error()),
+				})
+		}
+	}
+
+	for i := range machine.Spec.Network.VirtualNetworkDevices.VRFs {
+		err := validateVRFConfigRoutingPolicy(&machine.Spec.Network.VirtualNetworkDevices.VRFs[i])
+		if err != nil {
+			return apierrors.NewInvalid(
+				gk,
+				name,
+				field.ErrorList{
+					field.Invalid(
+						field.NewPath("spec", "network", "VirtualNetworkDevices", "VRFs", fmt.Sprint(i), "Table"), machine.Spec.Network.VirtualNetworkDevices.VRFs[i], err.Error()),
 				})
 		}
 	}
@@ -115,19 +152,56 @@ func validateNetworks(machine *infrav1.ProxmoxMachine) error {
 	return nil
 }
 
-func validateNetworkDevice(device *infrav1.NetworkDevice) error {
-	if device.MTU == nil {
-		return nil
+func validateRoutingPolicy(policies *[]infrav1.RoutingPolicySpec) error {
+	for i, policy := range *policies {
+		if policy.Table == nil {
+			return fmt.Errorf("routing policy [%d] requires a table", i)
+		}
+	}
+	return nil
+}
+
+func validateVRFConfigRoutingPolicy(vrf *infrav1.VRFDevice) error {
+	for _, policy := range vrf.Routing.RoutingPolicy {
+		// Netplan will not accept rules not matching the l3mdev table, although
+		// there is no technical reason for this limitation.
+		if policy.Table != nil {
+			if *policy.Table != vrf.Table {
+				return fmt.Errorf("VRF %s: device/rule routing table mismatch %d != %d", vrf.Name, vrf.Table, *policy.Table)
+			}
+		}
+	}
+	return nil
+}
+
+func validateInterfaceConfigMTU(ifconfig *infrav1.InterfaceConfig) error {
+	if ifconfig.LinkMTU != nil {
+		// We allow MTUs down to 576, but since everything below 1280 breaks IPv6, you
+		// should disable the webhook if you really mean it.
+		if *ifconfig.LinkMTU > 1279 {
+			return nil
+		}
+
+		return fmt.Errorf("mtu must be at least 1280, but was %d", *ifconfig.LinkMTU)
+	}
+	return nil
+}
+
+func validateNetworkDeviceMTU(device *infrav1.NetworkDevice) error {
+	if device.MTU != nil {
+		// special value '1' to inherit the MTU value from the underlying bridge
+		if *device.MTU == 1 {
+			return nil
+		}
+
+		// We allow MTUs down to 576, but since everything below 1280 breaks IPv6, you
+		// should disable the webhook if you really mean it.
+		if *device.MTU > 1279 {
+			return nil
+		}
+
+		return fmt.Errorf("mtu must be at least 1280 or 1, but was %d", *device.MTU)
 	}
 
-	// special value '1' to inherit the MTU value from the underlying bridge
-	if *device.MTU == 1 {
-		return nil
-	}
-
-	if *device.MTU > 999 {
-		return nil
-	}
-
-	return fmt.Errorf("mtu must be at least 1000 or 1, but was %d", *device.MTU)
+	return nil
 }

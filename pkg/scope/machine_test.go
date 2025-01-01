@@ -1,5 +1,5 @@
 /*
-Copyright 2023 IONOS Cloud.
+Copyright 2023-2024 IONOS Cloud.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -120,6 +120,73 @@ func TestMachineScope_HasFailed(t *testing.T) {
 	}
 
 	require.False(t, scope.HasFailed())
+}
+
+func TestMachineScope_SkipQemuCheckEnabled(t *testing.T) {
+	p := infrav1alpha1.ProxmoxMachine{
+		Spec: infrav1alpha1.ProxmoxMachineSpec{
+			Checks: &infrav1alpha1.ProxmoxMachineChecks{
+				SkipCloudInitStatus: ptr.To(true),
+			},
+		},
+	}
+	scope := MachineScope{
+		ProxmoxMachine: &p,
+	}
+
+	require.True(t, scope.SkipCloudInitCheck())
+}
+
+func TestMachineScope_SkipQemuCheck(t *testing.T) {
+	p := infrav1alpha1.ProxmoxMachine{
+		Spec: infrav1alpha1.ProxmoxMachineSpec{},
+	}
+	scope := MachineScope{
+		ProxmoxMachine: &p,
+	}
+
+	require.False(t, scope.SkipCloudInitCheck())
+}
+
+func TestMachineScope_SkipCloudInitCheckEnabled(t *testing.T) {
+	p := infrav1alpha1.ProxmoxMachine{
+		Spec: infrav1alpha1.ProxmoxMachineSpec{
+			Checks: &infrav1alpha1.ProxmoxMachineChecks{
+				SkipCloudInitStatus: ptr.To(true),
+			},
+		},
+	}
+	scope := MachineScope{
+		ProxmoxMachine: &p,
+	}
+
+	require.True(t, scope.SkipCloudInitCheck())
+}
+
+func TestMachineScope_SkipCloudInit(t *testing.T) {
+	p := infrav1alpha1.ProxmoxMachine{
+		Spec: infrav1alpha1.ProxmoxMachineSpec{},
+	}
+	scope := MachineScope{
+		ProxmoxMachine: &p,
+	}
+
+	require.False(t, scope.SkipQemuGuestCheck())
+}
+
+func TestMachineScope_SkipQemuDisablesCloudInitCheck(t *testing.T) {
+	p := infrav1alpha1.ProxmoxMachine{
+		Spec: infrav1alpha1.ProxmoxMachineSpec{
+			Checks: &infrav1alpha1.ProxmoxMachineChecks{
+				SkipQemuGuestAgent: ptr.To(true),
+			},
+		},
+	}
+	scope := MachineScope{
+		ProxmoxMachine: &p,
+	}
+
+	require.True(t, scope.SkipCloudInitCheck())
 }
 
 func TestMachineScope_GetBootstrapSecret(t *testing.T) {

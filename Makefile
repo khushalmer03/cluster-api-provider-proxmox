@@ -2,7 +2,7 @@
 # Image URL to use all building/pushing image targets
 IMG ?= controller:latest
 # ENVTEST_K8S_VERSION refers to the version of kubebuilder assets to be downloaded by envtest binary.
-ENVTEST_K8S_VERSION = 1.28.0
+ENVTEST_K8S_VERSION = 1.30.0
 
 TOOLS_DIR := hack/tools
 
@@ -58,7 +58,7 @@ vet: ## Run go vet against code.
 
 .PHONY: lint
 lint: ## Run lint.
-	go run -modfile ./hack/tools/go.mod github.com/golangci/golangci-lint/cmd/golangci-lint run --timeout 5m -c .golangci.yml
+	go run -modfile ./hack/tools/go.mod github.com/golangci/golangci-lint/cmd/golangci-lint run
 
 # Package names to test
 WHAT ?= ./...
@@ -79,7 +79,7 @@ yamlfmt: ## Run yamlfmt against yaml.
 .PHONY: tidy
 tidy: ## Run go mod tidy to ensure modules are up to date
 	go mod tidy
-	cd $(TOOLS_DIR); go mod tidy
+	go -C $(TOOLS_DIR) mod tidy
 
 ##@ Build
 
@@ -122,9 +122,7 @@ docker-buildx: test ## Build and push Docker image for the manager for cross-pla
 ##@ verify
 
 .PHONY: verify
-verify: verify ## verify the manifests and the code.
-	$(MAKE) verify-modules
-	$(MAKE) verify-gen
+verify: verify-modules verify-gen ## verify the manifests and the code.
 
 .PHONY: verify-modules
 verify-modules: tidy ## Verify go modules are up to date
@@ -138,10 +136,10 @@ verify-modules: tidy ## Verify go modules are up to date
 	fi
 
 .PHONY: verify-gen
-verify-gen: generate manifests  ## Verify go generated files and CRDs are up to date
+verify-gen: generate manifests mockgen ## Verify go generated files and CRDs are up to date
 	@if !(git diff --quiet HEAD); then \
 		git diff; \
-		echo "generated files are out of date, run make generate"; exit 1; \
+		echo "generated files are out of date, run make generate and/or make mockgen"; exit 1; \
 	fi
 
 
@@ -182,7 +180,8 @@ ENVTEST ?= $(LOCALBIN)/setup-envtest
 
 ## Tool Versions
 KUSTOMIZE_VERSION ?= v5.0.0
-CONTROLLER_TOOLS_VERSION ?= v0.11.3
+CONTROLLER_TOOLS_VERSION ?= v0.15.0
+ENVTEST_VERSION ?= latest
 
 KUSTOMIZE_INSTALL_SCRIPT ?= "https://raw.githubusercontent.com/kubernetes-sigs/kustomize/master/hack/install_kustomize.sh"
 .PHONY: kustomize
@@ -203,7 +202,7 @@ $(CONTROLLER_GEN): $(LOCALBIN)
 .PHONY: envtest
 envtest: $(ENVTEST) ## Download envtest-setup locally if necessary.
 $(ENVTEST): $(LOCALBIN)
-	test -s $(LOCALBIN)/setup-envtest || GOBIN=$(LOCALBIN) go install sigs.k8s.io/controller-runtime/tools/setup-envtest@latest
+	test -s $(LOCALBIN)/setup-envtest || GOBIN=$(LOCALBIN) go install sigs.k8s.io/controller-runtime/tools/setup-envtest@$(ENVTEST_VERSION)
 
 ##@ Test
 
@@ -221,11 +220,28 @@ crs-cilium: ## Generates crs manifests for Cilium.
 	$(HELM) repo add cilium https://helm.cilium.io/ --force-update
 	$(HELM) template cilium cilium/cilium --version $(CILIUM_VERSION) --set internalTrafficPolicy=local --namespace kube-system > templates/crs/cni/cilium.yaml
 
-CALICO_VERSION ?= v3.26.3
+CALICO_VERSION ?= v3.28.2
 
 .PHONY: crs-calico
 crs-calico: ## Generates crs manifests for Calico.
 	curl -o templates/crs/cni/calico.yaml https://raw.githubusercontent.com/projectcalico/calico/$(CALICO_VERSION)/manifests/calico.yaml
+
+METALLB_VERSION ?= 0.14.4
+FRR_K8S_DIR = metallb/charts/metallb/charts/frr-k8s/templates
+LB_TOLERATIONS = [{"key": "node-role.kubernetes.io/load-balancer", "operator": "Exists", "effect": "NoSchedule"}]
+CP_TOLERATIONS = [{"key": "node-role.kubernetes.io/control-plane", "operator": "Exists", "effect": "NoSchedule"}]
+FRR_NODESELECTOR = {"node-role.kubernetes.io/load-balancer": ""}
+.PHONY: crs-metallb
+crs-metallb: ## Generates crs manifests for MetalLB.
+	$(HELM) repo add metallb https://metallb.github.io/metallb
+	$(HELM) template metallb metallb/metallb --version $(METALLB_VERSION) \
+			--set frrk8s.enabled=true,speaker.frr.enabled=false \
+			--set-json 'controller.tolerations=$(CP_TOLERATIONS)' \
+			--set-json 'speaker.tolerations=$(LB_TOLERATIONS)' \
+			--set-json 'frr-k8s.frrk8s.tolerations=$(LB_TOLERATIONS)' \
+			--set-json 'frr-k8s.frrk8s.nodeSelector=$(FRR_NODESELECTOR)' \
+			--namespace=metallb-system > templates/crs/metallb.yaml
+
 
 ##@ Release
 ## --------------------------------------
@@ -265,7 +281,7 @@ KUBETEST_CONF_PATH ?= $(abspath $(E2E_DATA_DIR)/kubetest/conformance.yaml)
 
 # Allow overriding the e2e configurations
 GINKGO_FOCUS ?= Workload cluster creation
-GINKGO_SKIP ?= API Version Upgrade
+GINKGO_SKIP ?= Generic|Flatcar
 GINKGO_NODES ?= 1
 GINKGO_NOCOLOR ?= false
 GINKGO_ARGS ?=
@@ -301,7 +317,7 @@ test-e2e: $(ENVSUBST) $(KUBECTL) $(GINKGO) e2e-image ## Run the end-to-end tests
 	$(ENVSUBST) < $(E2E_CONF_FILE) > $(E2E_CONF_FILE_ENVSUBST) && \
 	time $(GINKGO) -v --trace -poll-progress-after=$(GINKGO_POLL_PROGRESS_AFTER) -poll-progress-interval=$(GINKGO_POLL_PROGRESS_INTERVAL) \
 	--tags=e2e --focus="$(GINKGO_FOCUS)" -skip="$(GINKGO_SKIP)" --nodes=$(GINKGO_NODES) --no-color=$(GINKGO_NOCOLOR) \
-	--timeout=$(GINKGO_TIMEOUT) --output-dir="$(ARTIFACTS)" --junit-report="junit.e2e_suite.1.xml" $(GINKGO_ARGS) ./test/e2e -- \
+	--timeout=$(GINKGO_TIMEOUT) --output-dir="$(ARTIFACTS)" --junit-report="junit.e2e_suite.1.xml" --fail-fast  $(GINKGO_ARGS) ./test/e2e -- \
 		-e2e.artifacts-folder="$(ARTIFACTS)" \
 		-e2e.config="$(E2E_CONF_FILE_ENVSUBST)" \
 		-e2e.skip-resource-cleanup=$(SKIP_CLEANUP) \

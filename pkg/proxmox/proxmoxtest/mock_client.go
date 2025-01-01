@@ -39,6 +39,59 @@ func (_m *MockClient) EXPECT() *MockClient_Expecter {
 	return &MockClient_Expecter{mock: &_m.Mock}
 }
 
+// CheckID provides a mock function with given fields: ctx, vmID
+func (_m *MockClient) CheckID(ctx context.Context, vmID int64) (bool, error) {
+	ret := _m.Called(ctx, vmID)
+
+	var r0 bool
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, int64) (bool, error)); ok {
+		return rf(ctx, vmID)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, int64) bool); ok {
+		r0 = rf(ctx, vmID)
+	} else {
+		r0 = ret.Get(0).(bool)
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, int64) error); ok {
+		r1 = rf(ctx, vmID)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockClient_CheckID_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'CheckID'
+type MockClient_CheckID_Call struct {
+	*mock.Call
+}
+
+// CheckID is a helper method to define mock.On call
+//   - ctx context.Context
+//   - vmID int64
+func (_e *MockClient_Expecter) CheckID(ctx interface{}, vmID interface{}) *MockClient_CheckID_Call {
+	return &MockClient_CheckID_Call{Call: _e.mock.On("CheckID", ctx, vmID)}
+}
+
+func (_c *MockClient_CheckID_Call) Run(run func(ctx context.Context, vmID int64)) *MockClient_CheckID_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(int64))
+	})
+	return _c
+}
+
+func (_c *MockClient_CheckID_Call) Return(_a0 bool, _a1 error) *MockClient_CheckID_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockClient_CheckID_Call) RunAndReturn(run func(context.Context, int64) (bool, error)) *MockClient_CheckID_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // CloneVM provides a mock function with given fields: ctx, templateID, clone
 func (_m *MockClient) CloneVM(ctx context.Context, templateID int, clone proxmox.VMCloneRequest) (proxmox.VMCloneResponse, error) {
 	ret := _m.Called(ctx, templateID, clone)
@@ -89,6 +142,59 @@ func (_c *MockClient_CloneVM_Call) Return(_a0 proxmox.VMCloneResponse, _a1 error
 }
 
 func (_c *MockClient_CloneVM_Call) RunAndReturn(run func(context.Context, int, proxmox.VMCloneRequest) (proxmox.VMCloneResponse, error)) *MockClient_CloneVM_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// CloudInitStatus provides a mock function with given fields: ctx, vm
+func (_m *MockClient) CloudInitStatus(ctx context.Context, vm *go_proxmox.VirtualMachine) (bool, error) {
+	ret := _m.Called(ctx, vm)
+
+	var r0 bool
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, *go_proxmox.VirtualMachine) (bool, error)); ok {
+		return rf(ctx, vm)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, *go_proxmox.VirtualMachine) bool); ok {
+		r0 = rf(ctx, vm)
+	} else {
+		r0 = ret.Get(0).(bool)
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, *go_proxmox.VirtualMachine) error); ok {
+		r1 = rf(ctx, vm)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockClient_CloudInitStatus_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'CloudInitStatus'
+type MockClient_CloudInitStatus_Call struct {
+	*mock.Call
+}
+
+// CloudInitStatus is a helper method to define mock.On call
+//   - ctx context.Context
+//   - vm *go_proxmox.VirtualMachine
+func (_e *MockClient_Expecter) CloudInitStatus(ctx interface{}, vm interface{}) *MockClient_CloudInitStatus_Call {
+	return &MockClient_CloudInitStatus_Call{Call: _e.mock.On("CloudInitStatus", ctx, vm)}
+}
+
+func (_c *MockClient_CloudInitStatus_Call) Run(run func(ctx context.Context, vm *go_proxmox.VirtualMachine)) *MockClient_CloudInitStatus_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(*go_proxmox.VirtualMachine))
+	})
+	return _c
+}
+
+func (_c *MockClient_CloudInitStatus_Call) Return(_a0 bool, _a1 error) *MockClient_CloudInitStatus_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockClient_CloudInitStatus_Call) RunAndReturn(run func(context.Context, *go_proxmox.VirtualMachine) (bool, error)) *MockClient_CloudInitStatus_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -435,6 +541,49 @@ func (_c *MockClient_GetVM_Call) Return(_a0 *go_proxmox.VirtualMachine, _a1 erro
 }
 
 func (_c *MockClient_GetVM_Call) RunAndReturn(run func(context.Context, string, int64) (*go_proxmox.VirtualMachine, error)) *MockClient_GetVM_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// QemuAgentStatus provides a mock function with given fields: ctx, vm
+func (_m *MockClient) QemuAgentStatus(ctx context.Context, vm *go_proxmox.VirtualMachine) error {
+	ret := _m.Called(ctx, vm)
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, *go_proxmox.VirtualMachine) error); ok {
+		r0 = rf(ctx, vm)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// MockClient_QemuAgentStatus_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'QemuAgentStatus'
+type MockClient_QemuAgentStatus_Call struct {
+	*mock.Call
+}
+
+// QemuAgentStatus is a helper method to define mock.On call
+//   - ctx context.Context
+//   - vm *go_proxmox.VirtualMachine
+func (_e *MockClient_Expecter) QemuAgentStatus(ctx interface{}, vm interface{}) *MockClient_QemuAgentStatus_Call {
+	return &MockClient_QemuAgentStatus_Call{Call: _e.mock.On("QemuAgentStatus", ctx, vm)}
+}
+
+func (_c *MockClient_QemuAgentStatus_Call) Run(run func(ctx context.Context, vm *go_proxmox.VirtualMachine)) *MockClient_QemuAgentStatus_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(*go_proxmox.VirtualMachine))
+	})
+	return _c
+}
+
+func (_c *MockClient_QemuAgentStatus_Call) Return(_a0 error) *MockClient_QemuAgentStatus_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockClient_QemuAgentStatus_Call) RunAndReturn(run func(context.Context, *go_proxmox.VirtualMachine) error) *MockClient_QemuAgentStatus_Call {
 	_c.Call.Return(run)
 	return _c
 }

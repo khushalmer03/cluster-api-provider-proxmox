@@ -21,13 +21,28 @@ import (
 	"fmt"
 	"testing"
 
+<<<<<<< HEAD
 	infrav1 "github.com/ionos-cloud/cluster-api-provider-proxmox/api/v1alpha1"
+=======
+	"github.com/stretchr/testify/require"
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/utils/ptr"
+	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
+	capierrors "sigs.k8s.io/cluster-api/errors"
+
+	infrav1alpha1 "github.com/ionos-cloud/cluster-api-provider-proxmox/api/v1alpha1"
+>>>>>>> 5391da8168a9055b4cea081cee0a3198914b9f2e
 	"github.com/ionos-cloud/cluster-api-provider-proxmox/internal/service/scheduler"
 	"github.com/ionos-cloud/cluster-api-provider-proxmox/pkg/proxmox"
+	"github.com/ionos-cloud/cluster-api-provider-proxmox/pkg/proxmox/goproxmox"
 	"github.com/ionos-cloud/cluster-api-provider-proxmox/pkg/scope"
+<<<<<<< HEAD
 	go_proxmox "github.com/luthermonson/go-proxmox"
 	"github.com/stretchr/testify/require"
 	"k8s.io/utils/ptr"
+=======
+>>>>>>> 5391da8168a9055b4cea081cee0a3198914b9f2e
 )
 
 func TestReconcileVM_EverythingReady(t *testing.T) {
@@ -36,6 +51,7 @@ func TestReconcileVM_EverythingReady(t *testing.T) {
 	machineScope.SetVirtualMachineID(int64(vm.VMID))
 	machineScope.ProxmoxMachine.Status.IPAddresses = map[string]infrav1.IPAddress{infrav1.DefaultNetworkDevice: {IPV4: "10.10.10.10"}}
 	machineScope.ProxmoxMachine.Status.BootstrapDataProvided = ptr.To(true)
+<<<<<<< HEAD
 	machineScope.ProxmoxMachine.Spec.Network = &infrav1.NetworkSpec{
 		Default: &infrav1.NetworkDevice{
 			Bridge: "vmbr1",
@@ -44,6 +60,73 @@ func TestReconcileVM_EverythingReady(t *testing.T) {
 	}
 
 	proxmoxClient.EXPECT().GetVM(context.Background(), "node1", int64(123)).Return(vm, nil).Once()
+=======
+	machineScope.ProxmoxMachine.Status.Ready = true
+
+	proxmoxClient.EXPECT().GetVM(context.Background(), "node1", int64(123)).Return(vm, nil).Once()
+	proxmoxClient.EXPECT().CloudInitStatus(context.Background(), vm).Return(false, nil).Once()
+	proxmoxClient.EXPECT().QemuAgentStatus(context.Background(), vm).Return(nil).Once()
+
+	result, err := ReconcileVM(context.Background(), machineScope)
+	require.NoError(t, err)
+	require.Equal(t, infrav1alpha1.VirtualMachineStateReady, result.State)
+	require.Equal(t, "10.10.10.10", machineScope.ProxmoxMachine.Status.Addresses[1].Address)
+}
+
+func TestReconcileVM_QemuAgentCheckDisabled(t *testing.T) {
+	machineScope, proxmoxClient, _ := setupReconcilerTest(t)
+	vm := newRunningVM()
+	machineScope.SetVirtualMachineID(int64(vm.VMID))
+	machineScope.ProxmoxMachine.Status.IPAddresses = map[string]infrav1alpha1.IPAddress{infrav1alpha1.DefaultNetworkDevice: {IPV4: "10.10.10.10"}}
+	machineScope.ProxmoxMachine.Status.BootstrapDataProvided = ptr.To(true)
+	machineScope.ProxmoxMachine.Status.Ready = true
+	machineScope.ProxmoxMachine.Spec.Checks = &infrav1alpha1.ProxmoxMachineChecks{
+		SkipQemuGuestAgent: ptr.To(true),
+	}
+
+	proxmoxClient.EXPECT().GetVM(context.Background(), "node1", int64(123)).Return(vm, nil).Once()
+	// proxmoxClient.EXPECT().CloudInitStatus(context.Background(), vm).Return(false, nil).Once()
+
+	result, err := ReconcileVM(context.Background(), machineScope)
+	require.NoError(t, err)
+	require.Equal(t, infrav1alpha1.VirtualMachineStateReady, result.State)
+	require.Equal(t, "10.10.10.10", machineScope.ProxmoxMachine.Status.Addresses[1].Address)
+}
+
+func TestReconcileVM_CloudInitCheckDisabled(t *testing.T) {
+	machineScope, proxmoxClient, _ := setupReconcilerTest(t)
+	vm := newRunningVM()
+	machineScope.SetVirtualMachineID(int64(vm.VMID))
+	machineScope.ProxmoxMachine.Status.IPAddresses = map[string]infrav1alpha1.IPAddress{infrav1alpha1.DefaultNetworkDevice: {IPV4: "10.10.10.10"}}
+	machineScope.ProxmoxMachine.Status.BootstrapDataProvided = ptr.To(true)
+	machineScope.ProxmoxMachine.Status.Ready = true
+	machineScope.ProxmoxMachine.Spec.Checks = &infrav1alpha1.ProxmoxMachineChecks{
+		SkipCloudInitStatus: ptr.To(true),
+	}
+
+	proxmoxClient.EXPECT().GetVM(context.Background(), "node1", int64(123)).Return(vm, nil).Once()
+	proxmoxClient.EXPECT().QemuAgentStatus(context.Background(), vm).Return(nil)
+
+	result, err := ReconcileVM(context.Background(), machineScope)
+	require.NoError(t, err)
+	require.Equal(t, infrav1alpha1.VirtualMachineStateReady, result.State)
+	require.Equal(t, "10.10.10.10", machineScope.ProxmoxMachine.Status.Addresses[1].Address)
+}
+
+func TestReconcileVM_InitCheckDisabled(t *testing.T) {
+	machineScope, proxmoxClient, _ := setupReconcilerTest(t)
+	vm := newRunningVM()
+	machineScope.SetVirtualMachineID(int64(vm.VMID))
+	machineScope.ProxmoxMachine.Status.IPAddresses = map[string]infrav1alpha1.IPAddress{infrav1alpha1.DefaultNetworkDevice: {IPV4: "10.10.10.10"}}
+	machineScope.ProxmoxMachine.Status.BootstrapDataProvided = ptr.To(true)
+	machineScope.ProxmoxMachine.Status.Ready = true
+	machineScope.ProxmoxMachine.Spec.Checks = &infrav1alpha1.ProxmoxMachineChecks{
+		SkipCloudInitStatus: ptr.To(true),
+		SkipQemuGuestAgent:  ptr.To(true),
+	}
+
+	proxmoxClient.EXPECT().GetVM(context.Background(), "node1", int64(123)).Return(vm, nil).Once()
+>>>>>>> 5391da8168a9055b4cea081cee0a3198914b9f2e
 
 	result, err := ReconcileVM(context.Background(), machineScope)
 	require.NoError(t, err)
@@ -72,7 +155,7 @@ func TestEnsureVirtualMachine_CreateVM_FullOptions(t *testing.T) {
 		Target:      "node2",
 	}
 	response := proxmox.VMCloneResponse{NewID: 123, Task: newTask()}
-	proxmoxClient.EXPECT().CloneVM(context.TODO(), 123, expectedOptions).Return(response, nil).Once()
+	proxmoxClient.EXPECT().CloneVM(context.Background(), 123, expectedOptions).Return(response, nil).Once()
 
 	requeue, err := ensureVirtualMachine(context.Background(), machineScope)
 	require.NoError(t, err)
@@ -94,7 +177,7 @@ func TestEnsureVirtualMachine_CreateVM_SelectNode(t *testing.T) {
 
 	expectedOptions := proxmox.VMCloneRequest{Node: "node1", Name: "test", Target: "node3"}
 	response := proxmox.VMCloneResponse{NewID: 123, Task: newTask()}
-	proxmoxClient.EXPECT().CloneVM(context.TODO(), 123, expectedOptions).Return(response, nil).Once()
+	proxmoxClient.EXPECT().CloneVM(context.Background(), 123, expectedOptions).Return(response, nil).Once()
 
 	requeue, err := ensureVirtualMachine(context.Background(), machineScope)
 	require.NoError(t, err)
@@ -122,13 +205,111 @@ func TestEnsureVirtualMachine_CreateVM_SelectNode_InsufficientMemory(t *testing.
 	require.True(t, machineScope.HasFailed())
 }
 
+func TestEnsureVirtualMachine_CreateVM_VMIDRange(t *testing.T) {
+	machineScope, proxmoxClient, _ := setupReconcilerTest(t)
+	machineScope.ProxmoxMachine.Spec.VMIDRange = &infrav1alpha1.VMIDRange{
+		Start: 1000,
+		End:   1002,
+	}
+
+	expectedOptions := proxmox.VMCloneRequest{Node: "node1", NewID: 1001, Name: "test"}
+	response := proxmox.VMCloneResponse{Task: newTask(), NewID: int64(1001)}
+	proxmoxClient.Mock.On("CheckID", context.Background(), int64(1000)).Return(false, nil)
+	proxmoxClient.Mock.On("CheckID", context.Background(), int64(1001)).Return(true, nil)
+	proxmoxClient.EXPECT().CloneVM(context.Background(), 123, expectedOptions).Return(response, nil).Once()
+
+	requeue, err := ensureVirtualMachine(context.Background(), machineScope)
+	require.NoError(t, err)
+	require.True(t, requeue)
+
+	require.Equal(t, int64(1001), machineScope.ProxmoxMachine.GetVirtualMachineID())
+	require.True(t, machineScope.InfraCluster.ProxmoxCluster.HasMachine(machineScope.Name(), false))
+	requireConditionIsFalse(t, machineScope.ProxmoxMachine, infrav1alpha1.VMProvisionedCondition)
+}
+
+func TestEnsureVirtualMachine_CreateVM_VMIDRangeExhausted(t *testing.T) {
+	machineScope, proxmoxClient, _ := setupReconcilerTest(t)
+	machineScope.ProxmoxMachine.Spec.VMIDRange = &infrav1alpha1.VMIDRange{
+		Start: 1000,
+		End:   1002,
+	}
+
+	proxmoxClient.Mock.On("CheckID", context.Background(), int64(1000)).Return(false, nil)
+	proxmoxClient.Mock.On("CheckID", context.Background(), int64(1001)).Return(false, nil)
+	proxmoxClient.Mock.On("CheckID", context.Background(), int64(1002)).Return(false, nil)
+
+	requeue, err := ensureVirtualMachine(context.Background(), machineScope)
+	require.Error(t, err, ErrNoVMIDInRangeFree)
+	require.False(t, requeue)
+	require.Equal(t, int64(-1), machineScope.ProxmoxMachine.GetVirtualMachineID())
+}
+
+func TestEnsureVirtualMachine_CreateVM_VMIDRangeCheckExisting(t *testing.T) {
+	machineScope, proxmoxClient, kubeClient := setupReconcilerTest(t)
+	machineScope.ProxmoxMachine.Spec.VMIDRange = &infrav1alpha1.VMIDRange{
+		Start: 1000,
+		End:   1002,
+	}
+
+	// Add a VM with ID 1000.
+	// Make sure the check for a free vmid skips 1000 by ensuring the Proxmox CheckID function isn't called more than once.
+	// It is called once when reconciling this test vm.
+	vm := newRunningVM()
+	vm.Name = "vm1000"
+	proxmoxClient.EXPECT().GetVM(context.Background(), "", int64(1000)).Return(vm, nil).Once()
+	proxmoxClient.Mock.On("CheckID", context.Background(), int64(1000)).Return(false, nil).Once()
+	infraMachine := infrav1alpha1.ProxmoxMachine{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "vm1000",
+		},
+		Spec: infrav1alpha1.ProxmoxMachineSpec{
+			VirtualMachineID: ptr.To(int64(1000)),
+		},
+	}
+	machine := clusterv1.Machine{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "vm1000",
+		},
+		Spec: clusterv1.MachineSpec{
+			InfrastructureRef: corev1.ObjectReference{
+				Kind: "ProxmoxMachine",
+				Name: "vm1000",
+			},
+		},
+	}
+	machineScopeVMThousand, err := scope.NewMachineScope(scope.MachineScopeParams{
+		Client:         kubeClient,
+		Logger:         machineScope.Logger,
+		Cluster:        machineScope.Cluster,
+		Machine:        &machine,
+		InfraCluster:   machineScope.InfraCluster,
+		ProxmoxMachine: &infraMachine,
+		IPAMHelper:     machineScope.IPAMHelper,
+	})
+	require.NoError(t, err)
+	machineScopeVMThousand.SetVirtualMachineID(1000)
+	_, err = ensureVirtualMachine(context.Background(), machineScopeVMThousand)
+	require.NoError(t, err)
+
+	expectedOptions := proxmox.VMCloneRequest{Node: "node1", NewID: 1002, Name: "test"}
+	response := proxmox.VMCloneResponse{Task: newTask(), NewID: int64(1002)}
+	proxmoxClient.EXPECT().CloneVM(context.Background(), 123, expectedOptions).Return(response, nil).Once()
+	proxmoxClient.Mock.On("CheckID", context.Background(), int64(1001)).Return(false, nil).Once()
+	proxmoxClient.Mock.On("CheckID", context.Background(), int64(1002)).Return(true, nil).Once()
+
+	requeue, err := ensureVirtualMachine(context.Background(), machineScope)
+	require.NoError(t, err)
+	require.True(t, requeue)
+	require.Equal(t, int64(1002), machineScope.ProxmoxMachine.GetVirtualMachineID())
+}
+
 func TestEnsureVirtualMachine_FindVM(t *testing.T) {
 	machineScope, proxmoxClient, _ := setupReconcilerTest(t)
 	machineScope.SetVirtualMachineID(123)
 	vm := newStoppedVM()
 	vm.VirtualMachineConfig.SMBios1 = "uuid=56603c36-46b9-4608-90ae-c731c15eae64"
 
-	proxmoxClient.EXPECT().GetVM(context.TODO(), "node1", int64(123)).Return(vm, nil).Once()
+	proxmoxClient.EXPECT().GetVM(context.Background(), "node1", int64(123)).Return(vm, nil).Once()
 
 	requeue, err := ensureVirtualMachine(context.Background(), machineScope)
 	require.NoError(t, err)
@@ -142,8 +323,8 @@ func TestEnsureVirtualMachine_UpdateVMLocation_Error(t *testing.T) {
 	machineScope, proxmoxClient, _ := setupReconcilerTest(t)
 	machineScope.SetVirtualMachineID(123)
 
-	proxmoxClient.EXPECT().GetVM(context.TODO(), "node1", int64(123)).Return(nil, fmt.Errorf("not found")).Once()
-	proxmoxClient.EXPECT().FindVMResource(context.TODO(), uint64(123)).Return(nil, fmt.Errorf("unavailalbe")).Once()
+	proxmoxClient.EXPECT().GetVM(context.Background(), "node1", int64(123)).Return(nil, fmt.Errorf("not found")).Once()
+	proxmoxClient.EXPECT().FindVMResource(context.Background(), uint64(123)).Return(nil, fmt.Errorf("unavailalbe")).Once()
 
 	_, err := ensureVirtualMachine(context.Background(), machineScope)
 	require.Error(t, err)
@@ -154,7 +335,7 @@ func TestReconcileVirtualMachineConfig_NoConfig(t *testing.T) {
 	vm := newStoppedVM()
 	machineScope.SetVirtualMachine(vm)
 
-	requeue, err := reconcileVirtualMachineConfig(context.TODO(), machineScope)
+	requeue, err := reconcileVirtualMachineConfig(context.Background(), machineScope)
 	require.NoError(t, err)
 	require.False(t, requeue)
 }
@@ -181,13 +362,13 @@ func TestReconcileVirtualMachineConfig_ApplyConfig(t *testing.T) {
 		proxmox.VirtualMachineOption{Name: optionSockets, Value: machineScope.ProxmoxMachine.Spec.NumSockets},
 		proxmox.VirtualMachineOption{Name: optionCores, Value: machineScope.ProxmoxMachine.Spec.NumCores},
 		proxmox.VirtualMachineOption{Name: optionMemory, Value: machineScope.ProxmoxMachine.Spec.MemoryMiB},
-		proxmox.VirtualMachineOption{Name: "net0", Value: formatNetworkDevice("virtio", "vmbr0", ptr.To(uint16(1500)))},
-		proxmox.VirtualMachineOption{Name: "net1", Value: formatNetworkDevice("virtio", "vmbr1", ptr.To(uint16(1500)))},
+		proxmox.VirtualMachineOption{Name: "net0", Value: formatNetworkDevice("virtio", "vmbr0", ptr.To(uint16(1500)), nil)},
+		proxmox.VirtualMachineOption{Name: "net1", Value: formatNetworkDevice("virtio", "vmbr1", ptr.To(uint16(1500)), nil)},
 	}
 
-	proxmoxClient.EXPECT().ConfigureVM(context.TODO(), vm, expectedOptions...).Return(task, nil).Once()
+	proxmoxClient.EXPECT().ConfigureVM(context.Background(), vm, expectedOptions...).Return(task, nil).Once()
 
-	requeue, err := reconcileVirtualMachineConfig(context.TODO(), machineScope)
+	requeue, err := reconcileVirtualMachineConfig(context.Background(), machineScope)
 	require.NoError(t, err)
 	require.True(t, requeue)
 	require.EqualValues(t, task.UPID, *machineScope.ProxmoxMachine.Status.TaskRef)
@@ -200,7 +381,7 @@ func TestReconcileDisks_RunningVM(t *testing.T) {
 	}
 	machineScope.SetVirtualMachine(newRunningVM())
 
-	require.NoError(t, reconcileDisks(context.TODO(), machineScope))
+	require.NoError(t, reconcileDisks(context.Background(), machineScope))
 }
 
 func TestReconcileDisks_ResizeDisk(t *testing.T) {
@@ -211,9 +392,9 @@ func TestReconcileDisks_ResizeDisk(t *testing.T) {
 	vm := newStoppedVM()
 	machineScope.SetVirtualMachine(vm)
 
-	proxmoxClient.EXPECT().ResizeDisk(context.TODO(), vm, "ide0", machineScope.ProxmoxMachine.Spec.Disks.BootVolume.FormatSize()).Return(nil)
+	proxmoxClient.EXPECT().ResizeDisk(context.Background(), vm, "ide0", machineScope.ProxmoxMachine.Spec.Disks.BootVolume.FormatSize()).Return(nil)
 
-	require.NoError(t, reconcileDisks(context.TODO(), machineScope))
+	require.NoError(t, reconcileDisks(context.Background(), machineScope))
 }
 
 func TestReconcileMachineAddresses_IPV4(t *testing.T) {
@@ -232,7 +413,11 @@ func TestReconcileMachineAddresses_IPV4(t *testing.T) {
 func TestReconcileMachineAddresses_IPV6(t *testing.T) {
 	machineScope, _, _ := setupReconcilerTest(t)
 	machineScope.InfraCluster.ProxmoxCluster.Spec.IPv4Config = nil
+<<<<<<< HEAD
 	machineScope.InfraCluster.ProxmoxCluster.Spec.IPv6Config = &infrav1.IPConfig{
+=======
+	machineScope.InfraCluster.ProxmoxCluster.Spec.IPv6Config = &infrav1alpha1.IPConfigSpec{
+>>>>>>> 5391da8168a9055b4cea081cee0a3198914b9f2e
 		Addresses: []string{"2001:db8::/64"},
 		Prefix:    64,
 		Gateway:   "2001:db8::1",
@@ -251,7 +436,11 @@ func TestReconcileMachineAddresses_IPV6(t *testing.T) {
 
 func TestReconcileMachineAddresses_DualStack(t *testing.T) {
 	machineScope, _, _ := setupReconcilerTest(t)
+<<<<<<< HEAD
 	machineScope.InfraCluster.ProxmoxCluster.Spec.IPv6Config = &infrav1.IPConfig{
+=======
+	machineScope.InfraCluster.ProxmoxCluster.Spec.IPv6Config = &infrav1alpha1.IPConfigSpec{
+>>>>>>> 5391da8168a9055b4cea081cee0a3198914b9f2e
 		Addresses: []string{"2001:db8::/64"},
 		Prefix:    64,
 		Gateway:   "2001:db8::1",
@@ -269,6 +458,7 @@ func TestReconcileMachineAddresses_DualStack(t *testing.T) {
 	require.Equal(t, machineScope.ProxmoxMachine.Status.Addresses[2].Address, "2001:db8::2")
 }
 
+<<<<<<< HEAD
 func TestReconcileMachineAddresses_DHCP(t *testing.T) {
 	machineScope, proxmoxClient, _ := setupReconcilerTest(t)
 	machineScope.ProxmoxMachine.Spec.Network = &infrav1.NetworkSpec{
@@ -303,4 +493,85 @@ func TestReconcileMachineAddresses_DHCP(t *testing.T) {
 	require.NoError(t, reconcileMachineAddresses(context.Background(), machineScope))
 	require.Equal(t, machineScope.ProxmoxMachine.Status.Addresses[0].Address, machineScope.ProxmoxMachine.GetName())
 	require.Equal(t, machineScope.ProxmoxMachine.Status.Addresses[1].Address, "10.10.10.4")
+=======
+func TestReconcileVirtualMachineConfigVLAN(t *testing.T) {
+	machineScope, proxmoxClient, _ := setupReconcilerTest(t)
+	machineScope.ProxmoxMachine.Spec.NumSockets = 4
+	machineScope.ProxmoxMachine.Spec.NumCores = 4
+	machineScope.ProxmoxMachine.Spec.MemoryMiB = 16 * 1024
+	machineScope.ProxmoxMachine.Spec.Network = &infrav1alpha1.NetworkSpec{
+		Default: &infrav1alpha1.NetworkDevice{Bridge: "vmbr0", Model: ptr.To("virtio"), VLAN: ptr.To(uint16(100))},
+		AdditionalDevices: []infrav1alpha1.AdditionalNetworkDevice{
+			{
+				Name:          "net1",
+				NetworkDevice: infrav1alpha1.NetworkDevice{Bridge: "vmbr1", Model: ptr.To("virtio"), VLAN: ptr.To(uint16(100))},
+			},
+		},
+	}
+
+	vm := newStoppedVM()
+	task := newTask()
+	machineScope.SetVirtualMachine(vm)
+	expectedOptions := []interface{}{
+		proxmox.VirtualMachineOption{Name: optionSockets, Value: machineScope.ProxmoxMachine.Spec.NumSockets},
+		proxmox.VirtualMachineOption{Name: optionCores, Value: machineScope.ProxmoxMachine.Spec.NumCores},
+		proxmox.VirtualMachineOption{Name: optionMemory, Value: machineScope.ProxmoxMachine.Spec.MemoryMiB},
+		proxmox.VirtualMachineOption{Name: "net0", Value: formatNetworkDevice("virtio", "vmbr0", nil, ptr.To(uint16(100)))},
+		proxmox.VirtualMachineOption{Name: "net1", Value: formatNetworkDevice("virtio", "vmbr1", nil, ptr.To(uint16(100)))},
+	}
+
+	proxmoxClient.EXPECT().ConfigureVM(context.TODO(), vm, expectedOptions...).Return(task, nil).Once()
+
+	requeue, err := reconcileVirtualMachineConfig(context.TODO(), machineScope)
+	require.NoError(t, err)
+	require.True(t, requeue)
+	require.EqualValues(t, task.UPID, *machineScope.ProxmoxMachine.Status.TaskRef)
+}
+
+func TestReconcileDisks_UnmountCloudInitISO(t *testing.T) {
+	machineScope, proxmoxClient, _ := setupReconcilerTest(t)
+
+	vm := newRunningVM()
+	vm.VirtualMachineConfig.IDE0 = "local:iso/cloud-init.iso,media=cdrom"
+	machineScope.SetVirtualMachine(vm)
+
+	proxmoxClient.EXPECT().UnmountCloudInitISO(context.Background(), vm, "ide0").Return(nil)
+
+	require.NoError(t, unmountCloudInitISO(context.Background(), machineScope))
+}
+
+func TestReconcileVM_CloudInitFailed(t *testing.T) {
+	machineScope, proxmoxClient, _ := setupReconcilerTest(t)
+	vm := newRunningVM()
+	machineScope.SetVirtualMachineID(int64(vm.VMID))
+	machineScope.ProxmoxMachine.Status.IPAddresses = map[string]infrav1alpha1.IPAddress{infrav1alpha1.DefaultNetworkDevice: {IPV4: "10.10.10.10"}}
+	machineScope.ProxmoxMachine.Status.BootstrapDataProvided = ptr.To(true)
+	machineScope.ProxmoxMachine.Status.Ready = true
+
+	proxmoxClient.EXPECT().GetVM(context.Background(), "node1", int64(123)).Return(vm, nil).Once()
+	proxmoxClient.EXPECT().CloudInitStatus(context.Background(), vm).Return(false, goproxmox.ErrCloudInitFailed).Once()
+	proxmoxClient.EXPECT().QemuAgentStatus(context.Background(), vm).Return(nil).Once()
+
+	_, err := ReconcileVM(context.Background(), machineScope)
+	require.Error(t, err, "unknown error")
+	require.Equal(t, machineScope.ProxmoxMachine.Status.FailureReason, ptr.To(capierrors.MachineStatusError("BootstrapFailed")))
+	require.Equal(t, machineScope.ProxmoxMachine.Status.FailureMessage, ptr.To("cloud-init failed execution"))
+}
+
+func TestReconcileVM_CloudInitRunning(t *testing.T) {
+	machineScope, proxmoxClient, _ := setupReconcilerTest(t)
+	vm := newRunningVM()
+	machineScope.SetVirtualMachineID(int64(vm.VMID))
+	machineScope.ProxmoxMachine.Status.IPAddresses = map[string]infrav1alpha1.IPAddress{infrav1alpha1.DefaultNetworkDevice: {IPV4: "10.10.10.10"}}
+	machineScope.ProxmoxMachine.Status.BootstrapDataProvided = ptr.To(true)
+	machineScope.ProxmoxMachine.Status.Ready = true
+
+	proxmoxClient.EXPECT().GetVM(context.Background(), "node1", int64(123)).Return(vm, nil).Once()
+	proxmoxClient.EXPECT().CloudInitStatus(context.Background(), vm).Return(true, nil).Once()
+	proxmoxClient.EXPECT().QemuAgentStatus(context.Background(), vm).Return(nil).Once()
+
+	result, err := ReconcileVM(context.Background(), machineScope)
+	require.NoError(t, err)
+	require.Equal(t, infrav1alpha1.VirtualMachineStatePending, result.State)
+>>>>>>> 5391da8168a9055b4cea081cee0a3198914b9f2e
 }

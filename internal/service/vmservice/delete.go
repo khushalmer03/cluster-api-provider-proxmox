@@ -1,5 +1,5 @@
 /*
-Copyright 2023 IONOS Cloud.
+Copyright 2023-2024 IONOS Cloud.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -25,7 +25,10 @@ import (
 	"sigs.k8s.io/cluster-api/util/conditions"
 	ctrlutil "sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
+	"github.com/pkg/errors"
+
 	infrav1alpha1 "github.com/ionos-cloud/cluster-api-provider-proxmox/api/v1alpha1"
+	"github.com/ionos-cloud/cluster-api-provider-proxmox/pkg/proxmox/goproxmox"
 	"github.com/ionos-cloud/cluster-api-provider-proxmox/pkg/scope"
 )
 
@@ -35,7 +38,7 @@ func DeleteVM(ctx context.Context, machineScope *scope.MachineScope) error {
 	node := machineScope.LocateProxmoxNode()
 
 	if _, err := machineScope.InfraCluster.ProxmoxClient.DeleteVM(ctx, node, vmID); err != nil {
-		if VMNotFound(err) {
+		if VMNotFound(err) || errors.Is(err, goproxmox.ErrVMIDFree) {
 			// remove machine from cluster status
 			machineScope.InfraCluster.ProxmoxCluster.RemoveNodeLocation(machineScope.Name(), util.IsControlPlaneMachine(machineScope.Machine))
 			// The VM is deleted so remove the finalizer.

@@ -1,5 +1,5 @@
 /*
-Copyright 2023 IONOS Cloud.
+Copyright 2023-2024 IONOS Cloud.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -27,7 +27,6 @@ import (
 
 	"github.com/go-logr/logr"
 	"github.com/luthermonson/go-proxmox"
-	"github.com/pkg/errors"
 	"github.com/spf13/pflag"
 	"k8s.io/apimachinery/pkg/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
@@ -49,10 +48,11 @@ import (
 
 	infrastructurev1alpha1 "github.com/ionos-cloud/cluster-api-provider-proxmox/api/v1alpha1"
 	"github.com/ionos-cloud/cluster-api-provider-proxmox/internal/controller"
+	"github.com/ionos-cloud/cluster-api-provider-proxmox/internal/tlshelper"
 	"github.com/ionos-cloud/cluster-api-provider-proxmox/internal/webhook"
 	capmox "github.com/ionos-cloud/cluster-api-provider-proxmox/pkg/proxmox"
 	"github.com/ionos-cloud/cluster-api-provider-proxmox/pkg/proxmox/goproxmox"
-	//+kubebuilder:scaffold:imports
+	// +kubebuilder:scaffold:imports
 )
 
 var (
@@ -70,6 +70,9 @@ var (
 	ProxmoxTokenID string
 	// ProxmoxSecret env variable that defines the Proxmox secret for the given token id.
 	ProxmoxSecret string
+
+	proxmoxInsecure     bool
+	proxmoxRootCertFile string
 )
 
 func init() {
@@ -79,7 +82,7 @@ func init() {
 	_ = ipamicv1.AddToScheme(scheme)
 	_ = ipamv1.AddToScheme(scheme)
 
-	//+kubebuilder:scaffold:scheme
+	// +kubebuilder:scaffold:scheme
 }
 
 func main() {
@@ -145,7 +148,7 @@ func main() {
 			os.Exit(1)
 		}
 	}
-	//+kubebuilder:scaffold:builder
+	// +kubebuilder:scaffold:builder
 
 	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
 		setupLog.Error(err, "unable to set up health check")
@@ -163,12 +166,12 @@ func main() {
 	}
 }
 
-func setupReconcilers(ctx context.Context, mgr ctrl.Manager, client capmox.Client) error {
+func setupReconcilers(ctx context.Context, mgr ctrl.Manager, proxmoxClient capmox.Client) error {
 	if err := (&controller.ProxmoxClusterReconciler{
 		Client:        mgr.GetClient(),
 		Scheme:        mgr.GetScheme(),
 		Recorder:      mgr.GetEventRecorderFor("proxmoxcluster-controller"),
-		ProxmoxClient: client,
+		ProxmoxClient: proxmoxClient,
 	}).SetupWithManager(ctx, mgr); err != nil {
 		return fmt.Errorf("setting up ProxmoxCluster controller: %w", err)
 	}
@@ -176,7 +179,7 @@ func setupReconcilers(ctx context.Context, mgr ctrl.Manager, client capmox.Clien
 		Client:        mgr.GetClient(),
 		Scheme:        mgr.GetScheme(),
 		Recorder:      mgr.GetEventRecorderFor("proxmoxmachine-controller"),
-		ProxmoxClient: client,
+		ProxmoxClient: proxmoxClient,
 	}).SetupWithManager(mgr); err != nil {
 		return fmt.Errorf("setting up ProxmoxMachine controller: %w", err)
 	}
@@ -185,10 +188,23 @@ func setupReconcilers(ctx context.Context, mgr ctrl.Manager, client capmox.Clien
 }
 
 func setupProxmoxClient(ctx context.Context, logger logr.Logger) (capmox.Client, error) {
-	// TODO, check if we need to delete tls config
-	// You can disable security check for a client:
+	// we return nil if the env variables are not set
+	// so the proxmoxcontroller can create the client later from spec.credentialsRef
+	// or fail the cluster if no credentials found
+	if ProxmoxURL == "" || ProxmoxTokenID == "" || ProxmoxSecret == "" {
+		return nil, nil
+	}
+
+	rootCerts, err := tlshelper.SystemRootsWithFile(proxmoxRootCertFile)
+	if err != nil {
+		return nil, fmt.Errorf("loading cert pool: %w", err)
+	}
+
 	tr := &http.Transport{
-		TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec
+		TLSClientConfig: &tls.Config{
+			InsecureSkipVerify: proxmoxInsecure, //#nosec:G402 // Default retained, user can enable cert checking
+			RootCAs:            rootCerts,
+		},
 	}
 
 	httpClient := &http.Client{Transport: tr}
@@ -205,6 +221,12 @@ func initFlagsAndEnv(fs *pflag.FlagSet) {
 	ProxmoxTokenID = env.GetString("PROXMOX_TOKEN", "")
 	ProxmoxSecret = env.GetString("PROXMOX_SECRET", "")
 
+	fs.BoolVar(&proxmoxInsecure, "proxmox-insecure",
+		env.GetString("PROXMOX_INSECURE", "true") == "true",
+		"Skip TLS verification when connecting to Proxmox")
+	fs.StringVar(&proxmoxRootCertFile, "proxmox-root-cert-file", "",
+		"Root-Certificate to use to verify server TLS certificate")
+
 	fs.StringVar(&metricsAddr, "metrics-bind-address", ":8080", "The address the metric endpoint binds to.")
 	fs.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
 	fs.BoolVar(&enableLeaderElection, "leader-elect", false,
@@ -214,23 +236,4 @@ func initFlagsAndEnv(fs *pflag.FlagSet) {
 		"If true, run webhook server alongside manager")
 
 	feature.MutableGates.AddFlag(fs)
-
-	err := validate()
-	if err != nil {
-		setupLog.Error(err, "validate fails")
-		os.Exit(1)
-	}
-}
-
-func validate() error {
-	if ProxmoxURL == "" {
-		return errors.New("required variable `PROXMOX_URL` is not set")
-	}
-	if ProxmoxTokenID == "" {
-		return errors.New("required variable `PROXMOX_TOKEN` is not set")
-	}
-	if ProxmoxSecret == "" {
-		return errors.New("required variable `PROXMOX_SECRET` is not set")
-	}
-	return nil
 }
