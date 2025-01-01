@@ -231,8 +231,48 @@ type NetworkSpec struct {
 	VirtualNetworkDevices `json:",inline"`
 }
 
-// InterfaceConfig contains all configurables a network interface can have.
-type InterfaceConfig struct {
+// NetworkDevice defines the required details of a virtual machine network device.
+type NetworkDevice struct {
+	// Bridge is the network bridge to attach to the machine.
+	// +kubebuilder:validation:MinLength=1
+	Bridge string `json:"bridge"`
+
+	// Model is the network device model.
+	// +optional
+	// +kubebuilder:validation:Enum=e1000;virtio;rtl8139;vmxnet3
+	// +kubebuilder:default=virtio
+	Model *string `json:"model,omitempty"`
+
+	// MTU is the network device Maximum Transmission Unit.
+	// Only works with virtio Model.
+	// Set to 1 to inherit the MTU value from the underlying bridge.
+	// +optional
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=65520
+	MTU *uint16 `json:"mtu,omitempty"`
+
+	// DHCP4 indicates that if DHCP should be used to assign IPv4 addresses.
+	// DHCP4 enforce device to use DHCP despite the config set in cluster.spec.ipv4Config.
+	// +optional
+	DHCP4 bool `json:"dhcp4,omitempty"`
+
+	// DHCP6 indicates that if DHCP should be used to assign IPv6 addresses.
+	// DHCP6 enforce device to use DHCP despite the config set in cluster.spec.ipv6Config.
+	// +optional
+	DHCP6 bool `json:"dhcp6,omitempty"`
+}
+
+// AdditionalNetworkDevice the definition of a Proxmox network device.
+// +kubebuilder:validation:XValidation:rule="(self.ipv4PoolRef != null || self.ipv6PoolRef != null || self.dhcp4 || self.dhcp6)",message="at least dhcp and/or one pool reference must be set, either ipv4PoolRef or ipv6PoolRef"
+type AdditionalNetworkDevice struct {
+	NetworkDevice `json:",inline"`
+
+	// Name is the network device name.
+	// must be unique within the virtual machine and different from the primary device 'net0'.
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:XValidation:rule="self != 'net0'",message="additional network devices doesn't allow net0"
+	Name string `json:"name"`
+
 	// IPv4PoolRef is a reference to an IPAM Pool resource, which exposes IPv4 addresses.
 	// The network device will use an available IP address from the referenced pool.
 	// This can be combined with `IPv6PoolRef` in order to enable dual stack.

@@ -88,7 +88,7 @@ var _ = Describe("Controller Test", func() {
 
 		It("should disallow invalid IPV6 IPs", func() {
 			cluster := validProxmoxCluster("test-cluster")
-			cluster.Spec.IPv6Config = &infrav1.IPConfigSpec{
+			cluster.Spec.IPv6Config = &infrav1.IPConfig{
 				Addresses: []string{"invalid"},
 				Prefix:    64,
 				Gateway:   "2001:db8::1",
@@ -98,8 +98,8 @@ var _ = Describe("Controller Test", func() {
 
 		It("should disallow endpoint IP to intersect with node IPs", func() {
 			cluster := invalidProxmoxCluster("test-cluster")
-			cluster.Spec.ControlPlaneEndpoint.Host = "2001:db8::1"
-			cluster.Spec.IPv6Config = &infrav1.IPConfigSpec{
+			cluster.Spec.ControlPlaneEndpoint.Host = "[2001:db8::1]"
+			cluster.Spec.IPv6Config = &infrav1.IPConfig{
 				Addresses: []string{"2001:db8::/64"},
 				Prefix:    64,
 				Gateway:   "2001:db8::1",
@@ -139,14 +139,16 @@ func validProxmoxCluster(name string) infrav1.ProxmoxCluster {
 				Host: "10.10.10.1",
 				Port: 6443,
 			},
-			IPv4Config: &infrav1.IPConfigSpec{
-				Addresses: []string{
-					"10.10.10.2-10.10.10.10",
+			ClusterNetworkConfig: infrav1.ClusterNetworkConfig{
+				IPv4Config: &infrav1.IPConfig{
+					Addresses: []string{
+						"10.10.10.2-10.10.10.10",
+					},
+					Gateway: "10.10.10.1",
+					Prefix:  24,
 				},
-				Gateway: "10.10.10.1",
-				Prefix:  24,
+				DNSServers: []string{"8.8.8.8", "8.8.4.4"},
 			},
-			DNSServers: []string{"8.8.8.8", "8.8.4.4"},
 		},
 	}
 }

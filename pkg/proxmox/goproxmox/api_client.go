@@ -21,7 +21,6 @@ import (
 	"context"
 	"fmt"
 	"net/url"
-	"strings"
 
 	"github.com/go-logr/logr"
 	"github.com/luthermonson/go-proxmox"
@@ -272,50 +271,12 @@ func (c *APIClient) TagVM(ctx context.Context, vm *proxmox.VirtualMachine, tag s
 	return vm.AddTag(ctx, tag)
 }
 
-// UnmountCloudInitISO unmounts the cloud-init iso from VM.
-func (c *APIClient) UnmountCloudInitISO(ctx context.Context, vm *proxmox.VirtualMachine, device string) error {
-	err := vm.UnmountCloudInitISO(ctx, device)
+// GetVMNetwork returns a VM network interfaces based on nodeName and vmID.
+func (c *APIClient) GetVMNetwork(ctx context.Context, vm *proxmox.VirtualMachine) (iFaces []*proxmox.AgentNetworkIface, err error) {
+	networkInterfaces, err := vm.AgentGetNetworkIFaces(ctx)
 	if err != nil {
-		return fmt.Errorf("unable to unmount cloud-init iso: %w", err)
+		return nil, fmt.Errorf("cannot get network interfaces for vm with id %d: %w", vm.VMID, err)
 	}
 
-	if vm.HasTag(proxmox.MakeTag(proxmox.TagCloudInit)) {
-		_, err = vm.RemoveTag(ctx, proxmox.MakeTag(proxmox.TagCloudInit))
-	}
-	return err
-}
-
-// CloudInitStatus returns the cloud-init status of the VM.
-func (c *APIClient) CloudInitStatus(ctx context.Context, vm *proxmox.VirtualMachine) (running bool, err error) {
-	if err := c.QemuAgentStatus(ctx, vm); err != nil {
-		return false, errors.Wrap(err, "error waiting for agent")
-	}
-
-	pid, err := vm.AgentExec(ctx, []string{"cloud-init", "status"}, "")
-	if err != nil {
-		return false, errors.Wrap(err, "unable to get cloud-init status")
-	}
-
-	status, err := vm.WaitForAgentExecExit(ctx, pid, 2)
-	if err != nil {
-		return false, errors.Wrap(err, "unable to wait for agent exec")
-	}
-
-	if status.Exited == 1 && status.ExitCode == 0 && strings.Contains(status.OutData, "running") {
-		return true, nil
-	}
-	if status.Exited == 1 && status.ExitCode != 0 {
-		return false, ErrCloudInitFailed
-	}
-
-	return false, nil
-}
-
-// QemuAgentStatus returns the qemu-agent status of the VM.
-func (c *APIClient) QemuAgentStatus(ctx context.Context, vm *proxmox.VirtualMachine) error {
-	if err := vm.WaitForAgent(ctx, 5); err != nil {
-		return errors.Wrap(err, "error waiting for agent")
-	}
-
-	return nil
+	return networkInterfaces, nil
 }

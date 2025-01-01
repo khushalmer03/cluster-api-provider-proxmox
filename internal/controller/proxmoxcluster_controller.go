@@ -191,45 +191,14 @@ func (r *ProxmoxClusterReconciler) reconcileNormal(ctx context.Context, clusterS
 	// If the ProxmoxCluster doesn't have our finalizer, add it.
 	ctrlutil.AddFinalizer(clusterScope.ProxmoxCluster, infrav1alpha1.ClusterFinalizer)
 
-	if clusterScope.ProxmoxCluster.Spec.ExternalManagedControlPlane {
-		if clusterScope.ProxmoxCluster.Spec.ControlPlaneEndpoint == nil {
-			clusterScope.Logger.Info("ProxmoxCluster is not ready, missing or waiting for a ControlPlaneEndpoint")
-
-			conditions.MarkFalse(clusterScope.ProxmoxCluster, infrav1alpha1.ProxmoxClusterReady, infrav1alpha1.MissingControlPlaneEndpointReason, clusterv1.ConditionSeverityWarning, "The ProxmoxCluster is missing or waiting for a ControlPlaneEndpoint")
-
-			return ctrl.Result{Requeue: true}, nil
+	if !clusterScope.ProxmoxCluster.Spec.ClusterNetworkConfig.DHCPEnabled() {
+		res, err := r.reconcileIPAM(ctx, clusterScope)
+		if err != nil {
+			return ctrl.Result{}, err
 		}
-		if clusterScope.ProxmoxCluster.Spec.ControlPlaneEndpoint.Host == "" {
-			clusterScope.Logger.Info("ProxmoxCluster is not ready, missing or waiting for a ControlPlaneEndpoint host")
-
-			conditions.MarkFalse(clusterScope.ProxmoxCluster, infrav1alpha1.ProxmoxClusterReady, infrav1alpha1.MissingControlPlaneEndpointReason, clusterv1.ConditionSeverityWarning, "The ProxmoxCluster is missing or waiting for a ControlPlaneEndpoint host")
-
-			return ctrl.Result{Requeue: true}, nil
+		if !res.IsZero() {
+			return res, nil
 		}
-		if clusterScope.ProxmoxCluster.Spec.ControlPlaneEndpoint.Port == 0 {
-			clusterScope.Logger.Info("ProxmoxCluster is not ready, missing or waiting for a ControlPlaneEndpoint port")
-
-			conditions.MarkFalse(clusterScope.ProxmoxCluster, infrav1alpha1.ProxmoxClusterReady, infrav1alpha1.MissingControlPlaneEndpointReason, clusterv1.ConditionSeverityWarning, "The ProxmoxCluster is missing or waiting for a ControlPlaneEndpoint port")
-
-			return ctrl.Result{Requeue: true}, nil
-		}
-	}
-
-	// when a Cluster is marked failed cause the Proxmox client is nil.
-	// the cluster doesn't reconcile the failed state if we restart the controller.
-	// so we need to check if the ProxmoxClient is not nil and the ProxmoxCluster has a failure reason.
-	err := r.reconcileFailedClusterState(clusterScope)
-	if err != nil {
-		return ctrl.Result{}, err
-	}
-
-	res, err := r.reconcileIPAM(ctx, clusterScope)
-	if err != nil {
-		return ctrl.Result{}, err
-	}
-
-	if !res.IsZero() {
-		return res, nil
 	}
 
 	if err := r.reconcileNormalCredentialsSecret(ctx, clusterScope); err != nil {
@@ -285,7 +254,7 @@ func (r *ProxmoxClusterReconciler) reconcileIPAM(ctx context.Context, clusterSco
 		return ctrl.Result{}, err
 	}
 
-	if clusterScope.ProxmoxCluster.Spec.IPv4Config != nil {
+	if clusterScope.ProxmoxCluster.Spec.IPv4Config != nil && !ptr.Deref(clusterScope.ProxmoxCluster.Spec.IPv4Config.DHCP, false) {
 		poolV4, err := clusterScope.IPAMHelper.GetDefaultInClusterIPPool(ctx, infrav1alpha1.IPV4Format)
 		if err != nil {
 			if apierrors.IsNotFound(err) {
@@ -296,7 +265,7 @@ func (r *ProxmoxClusterReconciler) reconcileIPAM(ctx context.Context, clusterSco
 		}
 		clusterScope.ProxmoxCluster.SetInClusterIPPoolRef(poolV4)
 	}
-	if clusterScope.ProxmoxCluster.Spec.IPv6Config != nil {
+	if clusterScope.ProxmoxCluster.Spec.IPv6Config != nil && !ptr.Deref(clusterScope.ProxmoxCluster.Spec.IPv6Config.DHCP, false) {
 		poolV6, err := clusterScope.IPAMHelper.GetDefaultInClusterIPPool(ctx, infrav1alpha1.IPV6Format)
 		if err != nil {
 			if apierrors.IsNotFound(err) {

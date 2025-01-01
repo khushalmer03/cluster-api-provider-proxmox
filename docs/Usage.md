@@ -162,15 +162,13 @@ For templates using `CNI`s you're required to create `ConfigMaps` to make `Clust
 
 We provide the following templates:
 
-| Flavor              | Tepmlate File                                        | CRS File                                                  |
-|---------------------|------------------------------------------------------|-----------------------------------------------------------|
-| cilium              | templates/cluster-template-cilium.yaml               | templates/crs/cni/cilium.yaml                             |
-| calico              | templates/cluster-template-calico.yaml               | templates/crs/cni/calico.yaml                             |
-| multiple-vlans      | templates/cluster-template-multiple-vlans.yaml       | -                                                         |
-| default             | templates/cluster-template.yaml                      | -                                                         |
-| cilium loadbalancer | templates/cluster-template-cilium-load-balancer.yaml | templates/crs/cni/cilium.yaml, templates/crs/metallb.yaml |
-| external-creds      | templates/cluster-template-external-creds.yaml       |                                                           |
-| flatcar             | templates/cluster-template-flatcar.yaml              |                                                           |
+| Flavor         | Tepmlate File                                  | CRS File                      |
+|----------------|------------------------------------------------|-------------------------------|
+| dhcp           | templates/cluster-template-dhcp.yaml           | -                             |
+| cilium         | templates/cluster-template-cilium.yaml         | templates/crs/cni/cilium.yaml |
+| calico         | templates/cluster-template-calico.yaml         | templates/crs/cni/calico.yaml |
+| multiple-vlans | templates/cluster-template-multiple-vlans.yaml | -                             |
+| default        | templates/cluster-template.yaml                | -                             |
 
 For more information about advanced clusters please check our [advanced setups docs](advanced-setups.md).
 

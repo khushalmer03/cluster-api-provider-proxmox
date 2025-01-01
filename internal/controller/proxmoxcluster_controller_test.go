@@ -120,7 +120,7 @@ var _ = Describe("Controller Test", func() {
 		})
 		It("Should successfully create IPAM IPV6 related resources", func() {
 			cl := buildProxmoxCluster(clusterName)
-			cl.Spec.IPv6Config = &infrav1.IPConfigSpec{
+			cl.Spec.IPv6Config = &infrav1.IPConfig{
 				Addresses: []string{"2001:db8::/64"},
 				Prefix:    64,
 				Gateway:   "2001:db8::1",
@@ -350,20 +350,22 @@ func buildProxmoxCluster(name string) infrav1.ProxmoxCluster {
 			},
 		},
 		Spec: infrav1.ProxmoxClusterSpec{
-			ControlPlaneEndpoint: &clusterv1.APIEndpoint{
 				Host: "10.10.10.11",
 				Port: 6443,
 			},
-			IPv4Config: &infrav1.IPConfigSpec{
-				Addresses: []string{
+<<<<<<< HEAD
+			ClusterNetworkConfig: infrav1.ClusterNetworkConfig{
+				IPv4Config: &infrav1.IPConfig{
+					Addresses: []string{
+						"10.10.10.2-10.10.10.10",
+						"10.10.10.100-10.10.10.125",
 					"10.10.10.2-10.10.10.10",
 					"10.10.10.100-10.10.10.125",
 					"10.10.10.192/64",
+>>>>>>> 5391da8168a9055b4cea081cee0a3198914b9f2e
 				},
-				Gateway: "10.10.10.1",
-				Prefix:  24,
+				DNSServers: []string{"8.8.8.8", "8.8.4.4"},
 			},
-			DNSServers: []string{"8.8.8.8", "8.8.4.4"},
 		},
 	}
 
